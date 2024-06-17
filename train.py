@@ -23,11 +23,7 @@ os.environ["WANDB_PROJECT"] = "SODA"
 
 @dataclass
 class ModelArguments:
-    # betas: List[float] = field(default_factory=lambda: [1.0e-4, 0.02])
-    betas = "cosine"
-    n_T: int = 1000
     drop_prob: float = 0.1
-    z_channels: int = 1152
 
 
 @dataclass
