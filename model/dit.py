@@ -357,13 +357,15 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
 
 class BottleneckDiTLLaMA(nn.Module):
     def __init__(
-            self
+            self,
+            gradient_checkpointing: bool = True,
     ):
         super().__init__()
         self.transformer = DiTTransformer2DModel()
         self.noise_scheduler = GaussianDiffusion.from_pretrained("facebook/DiT-XL-2-256")
         self.transformer.train()
-        self.transformer.enable_gradient_checkpointing()
+        if gradient_checkpointing:
+            self.transformer.enable_gradient_checkpointing()
 
     def forward(
             self,

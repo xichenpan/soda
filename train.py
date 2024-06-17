@@ -15,33 +15,10 @@ from model.soda import SODA
 from model.dit import BottleneckDiTLLaMA
 from model.encoder import Encoder
 from diffusers.training_utils import EMAModel
+from utils import ProcessorWrapper, AddGaussianNoise
 
 login(token="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")
 os.environ["WANDB_PROJECT"] = "SODA"
-
-
-class AddGaussianNoise():
-    def __init__(self, sigma=0.10):
-        self.sigma = sigma
-
-    def __call__(self, tensor):
-        assert isinstance(tensor, torch.Tensor)
-        dtype = tensor.dtype
-
-        tensor = tensor.float()
-        out = tensor + self.sigma * torch.randn_like(tensor)
-
-        if out.dtype != dtype:
-            out = out.to(dtype)
-        return out
-
-
-class ProcessorWrapper:
-    def __init__(self, processor):
-        self.processor = processor
-
-    def __call__(self, tensor):
-        return self.processor(tensor, return_tensors="pt")['pixel_values'].squeeze(0)
 
 
 @dataclass
@@ -89,7 +66,7 @@ class TrainingArguments(transformers.TrainingArguments):
     remove_unused_columns: bool = False
     run_name: str = 'test'
     report_to: str = 'wandb'
-    # gradient_checkpointing: bool = True
+    gradient_checkpointing: bool = True
 
 
 if __name__ == "__main__":
@@ -110,8 +87,8 @@ if __name__ == "__main__":
 
     assert data_args.target_image_size % 8 == 0, "Image size must be divisible by 8 (for the VAE encoder)."
     latent_size = data_args.target_image_size // 8
-    encoder = Encoder()
-    decoder = BottleneckDiTLLaMA()
+    encoder = Encoder(training_args.gradient_checkpointing)
+    decoder = BottleneckDiTLLaMA(gradient_checkpointing=training_args.gradient_checkpointing)
     model = SODA(
         encoder=encoder,
         vae=AutoencoderKL.from_pretrained("stabilityai/sdxl-vae"),
