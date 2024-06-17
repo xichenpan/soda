@@ -8,7 +8,7 @@ def normalize_to_neg_one_to_one(img):
 
 
 class SODA(nn.Module):
-    def __init__(self, encoder, vae, decoder, device, drop_prob, **kwargs):
+    def __init__(self, encoder, vae, decoder, drop_prob, device):
         ''' SODA proposed by "SODA: Bottleneck Diffusion Models for Representation Learning", and \
             DDPM proposed by "Denoising Diffusion Probabilistic Models", as well as \
             DDIM sampler proposed by "Denoising Diffusion Implicit Models".

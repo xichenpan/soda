@@ -11,8 +11,8 @@ from torchvision import transforms
 from transformers import SiglipImageProcessor
 from transformers import Trainer
 
-from model.SODA import SODA
-from model.dit import DiT_models
+from model.soda import SODA
+from model.dit import BottleneckDiTLLaMA
 from model.encoder import Encoder
 from diffusers.training_utils import EMAModel
 
@@ -111,21 +111,16 @@ if __name__ == "__main__":
     assert data_args.target_image_size % 8 == 0, "Image size must be divisible by 8 (for the VAE encoder)."
     latent_size = data_args.target_image_size // 8
     encoder = Encoder()
-    decoder = DiT_models['BottleneckDiTLLaMA_XL_2'](
-        input_size=latent_size,
-        z_channels=model_args.z_channels,
-    )
+    decoder = BottleneckDiTLLaMA()
     model = SODA(
         encoder=encoder,
         vae=AutoencoderKL.from_pretrained("stabilityai/sdxl-vae"),
         decoder=decoder,
-        device=device,
-        betas=model_args.betas,
-        n_T=model_args.n_T,
         drop_prob=model_args.drop_prob,
+        device=device,
     )
 
-    if 'LOCAL_RANK' not in os.environ or int(os.environ['LOCAL_RANK']) == 0:
+    if local_rank == 0:
         params = sum(p.numel() for p in encoder.parameters() if p.requires_grad) / 1e6
         print(f"encoder # params: {params:.1f}")
         params = sum(p.numel() for p in decoder.parameters() if p.requires_grad) / 1e6
@@ -186,38 +181,38 @@ if __name__ == "__main__":
         args=training_args,
         train_dataset=dataset,
     )
-
-
-    def save_model_hook(models, weights, output_dir):
-        if trainer.args.local_rank in [-1, 0]:
-            ema_unet.save_pretrained(os.path.join(output_dir, "unet_ema"))
-
-            for i, model in enumerate(models):
-                model.save_pretrained(os.path.join(output_dir, "unet"))
-
-                # make sure to pop weight so that corresponding model is not saved again
-                weights.pop()
-
-
-    def load_model_hook(models, input_dir):
-        load_model = EMAModel.from_pretrained(os.path.join(input_dir, "unet_ema"), UNet2DConditionModel)
-        ema_unet.load_state_dict(load_model.state_dict())
-        ema_unet.to(accelerator.device)
-        del load_model
-
-        for _ in range(len(models)):
-            # pop models so that they are not loaded again
-            model = models.pop()
-
-            # load diffusers style into model
-            load_model = UNet2DConditionModel.from_pretrained(input_dir, subfolder="unet")
-            model.register_to_config(**load_model.config)
-
-            model.load_state_dict(load_model.state_dict())
-            del load_model
-
-
-    trainer.register_save_state_pre_hook(save_model_hook)
-    trainer.register_load_state_pre_hook(load_model_hook)
+    #
+    #
+    # def save_model_hook(models, weights, output_dir):
+    #     if trainer.args.local_rank in [-1, 0]:
+    #         ema_unet.save_pretrained(os.path.join(output_dir, "unet_ema"))
+    #
+    #         for i, model in enumerate(models):
+    #             model.save_pretrained(os.path.join(output_dir, "unet"))
+    #
+    #             # make sure to pop weight so that corresponding model is not saved again
+    #             weights.pop()
+    #
+    #
+    # def load_model_hook(models, input_dir):
+    #     load_model = EMAModel.from_pretrained(os.path.join(input_dir, "unet_ema"), UNet2DConditionModel)
+    #     ema_unet.load_state_dict(load_model.state_dict())
+    #     ema_unet.to(accelerator.device)
+    #     del load_model
+    #
+    #     for _ in range(len(models)):
+    #         # pop models so that they are not loaded again
+    #         model = models.pop()
+    #
+    #         # load diffusers style into model
+    #         load_model = UNet2DConditionModel.from_pretrained(input_dir, subfolder="unet")
+    #         model.register_to_config(**load_model.config)
+    #
+    #         model.load_state_dict(load_model.state_dict())
+    #         del load_model
+    #
+    #
+    # trainer.register_save_state_pre_hook(save_model_hook)
+    # trainer.register_load_state_pre_hook(load_model_hook)
 
     trainer.train()
