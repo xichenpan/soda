@@ -1,5 +1,3 @@
-import os
-
 import torch
 import torch.nn as nn
 
@@ -55,32 +53,13 @@ class SODA(nn.Module):
         x_target = self.vae.encode(x_target.to(self.decoder.dtype)).latent_dist.sample()
         x_target = x_target * self.vae.config.scaling_factor
 
-        x_noised, t, noise = self.perturb(x_target, t=None)
-
         # 0 for conditional, 1 for unconditional
-        mask = torch.bernoulli(torch.zeros(x_noised.shape[0]) + self.drop_prob).to(self.device)
+        mask = torch.bernoulli(torch.zeros(x_target.shape[0]) + self.drop_prob).to(self.device)
 
         z = self.encoder(x_source)
+        loss = self.decoder(x_target, z)
 
-        B, C = x_t.shape[:2]
-        model_output, model_var_values = torch.split(model_output, C, dim=1)
-        # Learn the variance using the variational bound, but don't let
-        # it affect our mean prediction.
-        frozen_out = torch.cat([model_output.detach(), model_var_values], dim=1)
-        terms["vb"] = self._vb_terms_bpd(
-            model=lambda *args, r=frozen_out: r,
-            x_start=x_start,
-            x_t=x_t,
-            t=t,
-            clip_denoised=False,
-        )["output"]
-
-        target = noise
-        assert model_output.shape == target.shape == x_start.shape
-        terms["mse"] = mean_flat((target - model_output) ** 2)
-        terms["loss"] = terms["mse"] + terms["vb"]
-
-        return loss
+        return {"loss": loss}
 
     def encode(self, x, norm=False):
         z = self.encoder(x)
