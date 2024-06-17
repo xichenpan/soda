@@ -37,7 +37,7 @@ class TrainingArguments(transformers.TrainingArguments):
     output_dir: str = '/fsx-project/xichenpan/output'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
-    per_device_train_batch_size: int = 4
+    per_device_train_batch_size: int = 32
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
@@ -62,7 +62,7 @@ class TrainingArguments(transformers.TrainingArguments):
     remove_unused_columns: bool = False
     run_name: str = 'test'
     report_to: str = 'wandb'
-    gradient_checkpointing: bool = True
+    _gradient_checkpointing: bool = True
 
 
 if __name__ == "__main__":
@@ -79,18 +79,16 @@ if __name__ == "__main__":
         else (torch.bfloat16 if training_args.bf16 else torch.float32)
     )
 
-    device = "cuda:%d" % local_rank
-
     assert data_args.target_image_size % 8 == 0, "Image size must be divisible by 8 (for the VAE encoder)."
     latent_size = data_args.target_image_size // 8
-    encoder = Encoder(training_args.gradient_checkpointing)
-    decoder = BottleneckDiTLLaMA(gradient_checkpointing=training_args.gradient_checkpointing)
+    encoder = Encoder(training_args._gradient_checkpointing)
+    decoder = BottleneckDiTLLaMA(gradient_checkpointing=training_args._gradient_checkpointing)
     model = SODA(
-        encoder=encoder,
-        vae=AutoencoderKL.from_pretrained("stabilityai/sdxl-vae"),
-        decoder=decoder,
+        encoder=encoder.to(compute_dtype),
+        vae=AutoencoderKL.from_pretrained("stabilityai/sdxl-vae", torch_dtype=compute_dtype),
+        decoder=decoder.to(compute_dtype),
         drop_prob=model_args.drop_prob,
-        device=device,
+        dtype=compute_dtype,
     )
 
     if local_rank == 0:
@@ -99,7 +97,6 @@ if __name__ == "__main__":
         params = sum(p.numel() for p in decoder.parameters() if p.requires_grad) / 1e6
         print(f"decoder # params: {params:.1f}")
 
-    model.to(device)
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
     processor = SiglipImageProcessor.from_pretrained("google/siglip-so400m-patch14-384")

@@ -29,6 +29,10 @@ def _chunked_feed_forward(ff: nn.Module, hidden_states: torch.Tensor, chunk_dim:
     return ff_output
 
 
+def modulate(x, shift, scale):
+    return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+
+
 class LatentEmbedding(nn.Module):
     def __init__(self, n_channels):
         """
@@ -99,7 +103,7 @@ class BasicTransformerBlock(nn.Module):
 
         self.ff = LlamaMLP(LlamaConfig(
             hidden_size=dim,
-            intermediate_size=ff_inner_dim,
+            intermediate_size=ff_inner_dim if ff_inner_dim is not None else int(dim * 4),
             mlp_bias=ff_bias,
         ))
 
@@ -111,10 +115,6 @@ class BasicTransformerBlock(nn.Module):
         # Sets chunk feed-forward
         self._chunk_size = chunk_size
         self._chunk_dim = dim
-
-    @staticmethod
-    def modulate(x, shift, scale):
-        return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
     def forward(
             self,
@@ -134,14 +134,21 @@ class BasicTransformerBlock(nn.Module):
                 z_latents
             ).chunk(6, dim=1))
 
-        norm_hidden_states = self.modulate(self.norm1(hidden_states), time_shift_msa, time_scale_msa)
-        norm_hidden_states = self.modulate(norm_hidden_states, latent_shift_msa, latent_scale_msa)
+        norm_hidden_states = modulate(self.norm1(hidden_states), time_shift_msa, time_scale_msa)
+        norm_hidden_states = modulate(norm_hidden_states, latent_shift_msa, latent_scale_msa)
+
+        cache_position = torch.arange(
+            0, norm_hidden_states.shape[1], device=norm_hidden_states.device
+        )
+        position_ids = cache_position.unsqueeze(0)
 
         attn_output = self.attn(
             norm_hidden_states,
             encoder_hidden_states=None,
             attention_mask=attention_mask,
-        )
+            position_ids=position_ids,
+            cache_position=cache_position,
+        )[0]
         attn_output = time_gate_msa.unsqueeze(1) * attn_output
         attn_output = latent_gate_msa.unsqueeze(1) * attn_output
 
@@ -150,8 +157,8 @@ class BasicTransformerBlock(nn.Module):
             hidden_states = hidden_states.squeeze(1)
 
         # 4. Feed-forward
-        norm_hidden_states = self.modulate(self.norm2(hidden_states), time_shift_mlp, time_scale_mlp)
-        norm_hidden_states = self.modulate(norm_hidden_states, latent_shift_mlp, latent_scale_mlp)
+        norm_hidden_states = modulate(self.norm2(hidden_states), time_shift_mlp, time_scale_mlp)
+        norm_hidden_states = modulate(norm_hidden_states, latent_shift_mlp, latent_scale_mlp)
 
         if self._chunk_size is not None:
             # "feed_forward_chunk_size" can be used to save memory
@@ -166,6 +173,9 @@ class BasicTransformerBlock(nn.Module):
             hidden_states = hidden_states.squeeze(1)
 
         return hidden_states
+
+
+from diffusers.pipelines import DiTPipeline
 
 
 class DiTTransformer2DModel(ModelMixin, ConfigMixin):
@@ -183,7 +193,7 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
             attention_bias: bool = True,
             sample_size: int = 64,
             patch_size: int = 2,
-            num_embeds_ada_norm: Optional[int] = 1000,
+            num_embeds_ada_norm: Optional[int] = 1152,
             norm_type: str = "ada_norm_zero",
             norm_elementwise_affine: bool = False,
             norm_eps: float = 1e-5,
@@ -271,7 +281,7 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
         nn.init.normal_(self.timestep_embedder.linear_2.weight, std=0.02)
 
         # Zero-out adaLN modulation layers in DiT blocks:
-        for block in self.blocks:
+        for block in self.transformer_blocks:
             nn.init.constant_(block.time_modulation[-1].weight, 0)
             nn.init.constant_(block.time_modulation[-1].bias, 0)
             nn.init.constant_(block.latent_modulation[-1].weight, 0)
@@ -294,12 +304,15 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
             hidden_states: torch.Tensor,
             timestep: torch.LongTensor,
             z_latents: torch.Tensor,
+            mask: [torch.Tensor],
     ):
         # 1. Input
         hidden_states = self.pos_embed(hidden_states)
 
         timesteps_proj = self.time_proj(timestep)
         timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=hidden_states.dtype))  # (N, D)
+
+        z_latents = self.latent_embedder(z_latents, mask)
 
         # 2. Blocks
         for block in self.transformer_blocks:
@@ -319,8 +332,6 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
                     create_custom_forward(block),
                     hidden_states,
                     None,
-                    None,
-                    None,
                     timesteps_emb,
                     z_latents,
                     **ckpt_kwargs,
@@ -329,17 +340,15 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
                 hidden_states = block(
                     hidden_states,
                     attention_mask=None,
-                    encoder_hidden_states=None,
-                    encoder_attention_mask=None,
                     timestep=timesteps_emb,
-                    latents=z_latents,
+                    z_latents=z_latents,
                 )
 
         # 3. Output
         shift, scale = self.time_modulation(F.silu(timesteps_emb)).chunk(2, dim=1)
-        hidden_states = self.modulate(hidden_states, shift, scale)
+        hidden_states = modulate(hidden_states, shift, scale)
         shift, scale = self.latent_modulation(F.silu(z_latents)).chunk(2, dim=1)
-        hidden_states = self.modulate(hidden_states, shift, scale)
+        hidden_states = modulate(hidden_states, shift, scale)
         hidden_states = self.proj_out(hidden_states)
 
         # unpatchify
@@ -362,7 +371,8 @@ class BottleneckDiTLLaMA(nn.Module):
     ):
         super().__init__()
         self.transformer = DiTTransformer2DModel()
-        self.noise_scheduler = GaussianDiffusion.from_pretrained("facebook/DiT-XL-2-256")
+        self.noise_scheduler = GaussianDiffusion.from_pretrained("facebook/DiT-XL-2-256",
+                                                                 subfolder="scheduler")
         self.transformer.train()
         if gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
@@ -371,16 +381,17 @@ class BottleneckDiTLLaMA(nn.Module):
             self,
             latents,
             z_latents,
+            mask,
     ):
         bsz = latents.shape[0]
         # Sample a random timestep for each image
-        timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
-        timesteps = timesteps.long()
-        noise = torch.randn_like(latents)
+        timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device,
+                                  dtype=torch.long)
+        noise = torch.randn_like(latents, device=latents.device)
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
         z_latents = torch.tensor(z_latents, device=latents.device)
-        model_pred = self.transformer(noisy_latents, timesteps, z_latents)
+        model_pred = self.transformer(noisy_latents, timesteps, z_latents, mask)
         model_output, model_var_values = torch.split(model_pred, self.transformer.config.in_channels, dim=1)
         frozen_out = torch.cat([model_output.detach(), model_var_values], dim=1)
 
