@@ -2,11 +2,6 @@ import torch
 import torch.nn as nn
 
 
-def normalize_to_neg_one_to_one(img):
-    # [0.0, 1.0] -> [-1.0, 1.0]
-    return img * 2 - 1
-
-
 class SODA(nn.Module):
     def __init__(self, encoder, vae, decoder, drop_prob, device):
         ''' SODA proposed by "SODA: Bottleneck Diffusion Models for Representation Learning", and \
@@ -49,7 +44,6 @@ class SODA(nn.Module):
             Returns:
                 The simple MSE loss.
         '''
-        x_target = normalize_to_neg_one_to_one(x_target)
         x_target = self.vae.encode(x_target.to(self.decoder.dtype)).latent_dist.sample()
         x_target = x_target * self.vae.config.scaling_factor
 
@@ -60,9 +54,3 @@ class SODA(nn.Module):
         loss = self.decoder(x_target, z)
 
         return {"loss": loss}
-
-    def encode(self, x, norm=False):
-        z = self.encoder(x)
-        if norm:
-            z = torch.nn.functional.normalize(z)
-        return z
