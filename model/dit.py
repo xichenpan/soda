@@ -377,6 +377,7 @@ class BottleneckDiTLLaMA(nn.Module):
         self.noise_scheduler = GaussianDiffusion.from_pretrained("facebook/DiT-XL-2-256",
                                                                  subfolder="scheduler")
         self.transformer.train()
+        self.transformer.enable_xformers_memory_efficient_attention()
         if gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
 

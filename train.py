@@ -1,6 +1,5 @@
 import os
-from dataclasses import dataclass, field
-from typing import List, Union
+from dataclasses import dataclass
 
 import torch
 import transformers
@@ -11,10 +10,9 @@ from torchvision import transforms
 from transformers import SiglipImageProcessor
 from transformers import Trainer
 
-from model.soda import SODA
 from model.dit import BottleneckDiTLLaMA
 from model.encoder import Encoder
-from diffusers.training_utils import EMAModel
+from model.soda import SODA
 from utils import ProcessorWrapper, AddGaussianNoise
 
 login(token="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")
@@ -34,6 +32,7 @@ class DataArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
+    deepspeed = "./deepspeed_config.json"
     output_dir: str = '/fsx-project/xichenpan/output'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
@@ -50,8 +49,8 @@ class TrainingArguments(transformers.TrainingArguments):
     lr_scheduler_type: str = 'constant_with_warmup'
     warmup_steps: int = 5000
     logging_dir: str = '/fsx-project/xichenpan/log'
-    logging_steps: int = 100
-    save_steps: int = 5000
+    logging_steps: int = 5
+    save_steps: int = 1000
     save_total_limit: int = 30
     restore_callback_states_from_checkpoint: bool = True
     seed: int = 42
