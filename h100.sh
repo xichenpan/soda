@@ -15,6 +15,9 @@ echo "HOSTNAME=$HOSTNAME"
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"
 echo "SLURM_PROCID=$SLURM_PROCID"
 
+conda init
+source ~/.bashrc
+source activate base
 conda activate soda
 
 srun torchrun --nnodes=1 --nproc_per_node=8 \
