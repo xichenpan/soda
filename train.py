@@ -34,6 +34,7 @@ class DataArguments:
 class TrainingArguments(transformers.TrainingArguments):
     deepspeed = "./deepspeed_config.json"
     output_dir: str = '/fsx-project/xichenpan/output'
+    data_dir: str = '/fsx-project/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
     per_device_train_batch_size: int = 96
@@ -138,7 +139,7 @@ if __name__ == "__main__":
 
 
     # If the dataset is gated/private, make sure you have run huggingface-cli login
-    dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir="/fsx-project/xichenpan/.cache",
+    dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
                            split="train")
     dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // 1024)
     dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,

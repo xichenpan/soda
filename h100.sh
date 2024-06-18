@@ -18,4 +18,4 @@ echo "SLURM_PROCID=$SLURM_PROCID"
 conda activate soda
 
 srun torchrun --nnodes=1 --nproc_per_node=8 \
-    --rdzv_id=$SLURM_JOB_ID --rdzv_backend=c10d --rdzv_endpoint=$HOSTNAME:29500 train.py
+    --rdzv_id=$SLURM_JOB_ID --rdzv_backend=c10d --rdzv_endpoint=$HOSTNAME:29500 train.py --output_dir ~/output --data_dir ~/.cache
