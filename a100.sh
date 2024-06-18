@@ -18,6 +18,7 @@ echo "SLURM_PROCID=$SLURM_PROCID"
 
 conda init
 source ~/.bashrc
+source activate base
 conda activate soda
 
 srun torchrun --nnodes=2 --nproc_per_node=8 \
