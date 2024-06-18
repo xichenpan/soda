@@ -37,7 +37,7 @@ class TrainingArguments(transformers.TrainingArguments):
     output_dir: str = '/fsx-project/xichenpan/output'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
-    per_device_train_batch_size: int = 32
+    per_device_train_batch_size: int = 96
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
     # If the dataset is gated/private, make sure you have run huggingface-cli login
     dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir="/fsx-project/xichenpan/.cache",
-                           split="validation")
+                           split="train")
     dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // 1024)
     dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
                           remove_columns=["image", "label"])

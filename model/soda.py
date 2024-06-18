@@ -44,13 +44,13 @@ class SODA(nn.Module):
                 The simple MSE loss.
         '''
         # get the dtype of encoder params
-        x_target = self.vae.encode(x_target.to(self.dtype)).latent_dist.sample()
-        x_target = x_target * self.vae.config.scaling_factor
+        with torch.no_grad():
+            x_target = self.vae.encode(x_target.to(self.dtype)).latent_dist.sample()
+            x_target = x_target * self.vae.config.scaling_factor
+            # 0 for conditional, 1 for unconditional
+            mask = torch.bernoulli(torch.zeros(x_target.shape[0]) + self.drop_prob).to(x_target.device, self.dtype)
+            z = self.encoder(x_source.to(self.dtype))
 
-        # 0 for conditional, 1 for unconditional
-        mask = torch.bernoulli(torch.zeros(x_target.shape[0]) + self.drop_prob).to(x_target.device, self.dtype)
-
-        z = self.encoder(x_source.to(self.dtype))
         loss = self.decoder(x_target, z, mask)
 
         return {"loss": loss}

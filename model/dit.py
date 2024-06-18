@@ -175,9 +175,6 @@ class BasicTransformerBlock(nn.Module):
         return hidden_states
 
 
-from diffusers.pipelines import DiTPipeline
-
-
 class DiTTransformer2DModel(ModelMixin, ConfigMixin):
     _supports_gradient_checkpointing = True
 
@@ -253,8 +250,14 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
 
         # 3. Output blocks.
         self.norm_out = nn.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6)
-        self.time_modulation = nn.Linear(self.inner_dim, 2 * self.inner_dim)
-        self.latent_modulation = nn.Linear(self.inner_dim, 2 * self.inner_dim)
+        self.time_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(self.inner_dim, 2 * self.inner_dim, bias=True)
+        )
+        self.latent_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(self.inner_dim, 2 * self.inner_dim, bias=True)
+        )
         self.proj_out = nn.Linear(
             self.inner_dim, patch_size * patch_size * self.out_channels
         )
@@ -288,10 +291,10 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
             nn.init.constant_(block.latent_modulation[-1].bias, 0)
 
         # Zero-out output layers:
-        nn.init.constant_(self.time_modulation.weight, 0)
-        nn.init.constant_(self.time_modulation.bias, 0)
-        nn.init.constant_(self.latent_modulation.weight, 0)
-        nn.init.constant_(self.latent_modulation.bias, 0)
+        nn.init.constant_(self.time_modulation[-1].weight, 0)
+        nn.init.constant_(self.time_modulation[-1].bias, 0)
+        nn.init.constant_(self.latent_modulation[-1].weight, 0)
+        nn.init.constant_(self.latent_modulation[-1].bias, 0)
         nn.init.constant_(self.proj_out.weight, 0)
         nn.init.constant_(self.proj_out.bias, 0)
 
@@ -390,8 +393,7 @@ class BottleneckDiTLLaMA(nn.Module):
         noise = torch.randn_like(latents, device=latents.device)
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-        z_latents = torch.tensor(z_latents, device=latents.device)
-        model_pred = self.transformer(noisy_latents, timesteps, z_latents, mask)
+        model_pred = self.transformer(noisy_latents, timesteps, z_latents.to(latents.device), mask)
         model_output, model_var_values = torch.split(model_pred, self.transformer.config.in_channels, dim=1)
         frozen_out = torch.cat([model_output.detach(), model_var_values], dim=1)
 
@@ -403,7 +405,7 @@ class BottleneckDiTLLaMA(nn.Module):
                     x_t=noisy_latents,
                     t=timesteps,
                     clip_denoised=False,
-                )["output"]
+                )["output"].mean()
         )
 
         return loss
