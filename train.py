@@ -32,12 +32,12 @@ class DataArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
-    deepspeed = "./deepspeed_config.json"
+    # deepspeed = "./deepspeed_config.json"
     output_dir: str = '/fsx-project/xichenpan/output'
     data_dir: str = '/fsx-project/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
-    per_device_train_batch_size: int = 96
+    per_device_train_batch_size: int = 72
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
@@ -50,7 +50,7 @@ class TrainingArguments(transformers.TrainingArguments):
     lr_scheduler_type: str = 'constant_with_warmup'
     warmup_steps: int = 5000
     logging_dir: str = '/fsx-project/xichenpan/log'
-    logging_steps: int = 5
+    logging_steps: int = 1
     save_steps: int = 1000
     save_total_limit: int = 30
     restore_callback_states_from_checkpoint: bool = True
