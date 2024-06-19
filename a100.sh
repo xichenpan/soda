@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --gres=gpu:8
 #SBATCH -t 14-00:00:00
-#SBATCH --output=out.out
+#SBATCH --output=log.log
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export NCCL_NSOCKS_PERTHREAD=4
