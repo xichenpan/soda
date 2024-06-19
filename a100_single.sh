@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=12
-#SBATCH --gres=gpu:8
+#SBATCH --gres=gpu:1
 #SBATCH -t 14-00:00:00
 #SBATCH --output=log.log
 
@@ -34,4 +34,5 @@ module load cuda/12.1 \
 #    --mixed_precision=bf16 \
 #    train.py
 
-srun torchrun --standalone --nnodes=1 --nproc-per-node=8 train.py
+#srun torchrun --standalone --nnodes=1 --nproc-per-node=8 train.py
+srun train.py
