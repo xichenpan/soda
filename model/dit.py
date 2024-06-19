@@ -315,7 +315,7 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
 
         time_shift_msa, time_scale_msa, time_gate_msa, time_shift_mlp, time_scale_mlp, time_gate_mlp = (
             self.time_modulation(
-                timestep
+                timesteps_emb
             ).chunk(6, dim=1)
         )
 
