@@ -51,7 +51,7 @@ class TrainingArguments(transformers.TrainingArguments):
     warmup_steps: int = 5000
     logging_dir: str = '/fsx-project/xichenpan/log'
     logging_steps: int = 1
-    save_steps: int = 1000
+    save_steps: int = 200
     save_total_limit: int = 30
     restore_callback_states_from_checkpoint: bool = True
     seed: int = 42
