@@ -20,6 +20,10 @@ source ~/.bashrc
 source activate base
 conda activate soda
 
+module load cuda/12.1 \
+    nccl/2.18.3-cuda.12.1 \
+    nccl_efa/1.24.1-nccl.2.18.3-cuda.12.1
+
 #srun accelerate launch \
 #    --multi_gpu \
 #    --num_processes=16 \
