@@ -76,11 +76,6 @@ class BasicTransformerBlock(nn.Module):
         self.norm_type = norm_type
         self.num_embeds_ada_norm = num_embeds_ada_norm
 
-        self.time_modulation = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(dim, 6 * dim, bias=True)
-        )
-
         self.latent_modulation = nn.Sequential(
             nn.SiLU(),
             nn.Linear(dim, 6 * dim, bias=True)
@@ -118,17 +113,12 @@ class BasicTransformerBlock(nn.Module):
 
     def forward(
             self,
-            hidden_states: torch.Tensor,
-            attention_mask: Optional[torch.Tensor] = None,
-            timestep: Optional[torch.LongTensor] = None,
-            z_latents: Optional[torch.LongTensor] = None,
+            hidden_states,
+            attention_mask,
+            z_latents,
+            time_shift_msa, time_scale_msa, time_gate_msa, time_shift_mlp, time_scale_mlp, time_gate_mlp,
     ) -> torch.Tensor:
         # 0. Self-Attention
-        time_shift_msa, time_scale_msa, time_gate_msa, time_shift_mlp, time_scale_mlp, time_gate_mlp = (
-            self.time_modulation(
-                timestep
-            ).chunk(6, dim=1))
-
         latent_shift_msa, latent_scale_msa, latent_gate_msa, latent_shift_mlp, latent_scale_mlp, latent_gate_mlp = (
             self.latent_modulation(
                 z_latents
@@ -230,6 +220,11 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
         self.timestep_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=num_embeds_ada_norm)
         self.latent_embedder = LatentEmbedding(n_channels=self.inner_dim)
 
+        self.time_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(self.inner_dim, 6 * self.inner_dim, bias=True)
+        )
+
         self.transformer_blocks = nn.ModuleList(
             [
                 BasicTransformerBlock(
@@ -250,11 +245,11 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
 
         # 3. Output blocks.
         self.norm_out = nn.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6)
-        self.time_modulation = nn.Sequential(
+        self.final_time_modulation = nn.Sequential(
             nn.SiLU(),
             nn.Linear(self.inner_dim, 2 * self.inner_dim, bias=True)
         )
-        self.latent_modulation = nn.Sequential(
+        self.final_latent_modulation = nn.Sequential(
             nn.SiLU(),
             nn.Linear(self.inner_dim, 2 * self.inner_dim, bias=True)
         )
@@ -283,18 +278,19 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
         nn.init.normal_(self.timestep_embedder.linear_1.weight, std=0.02)
         nn.init.normal_(self.timestep_embedder.linear_2.weight, std=0.02)
 
+        nn.init.constant_(self.time_modulation[-1].weight, 0)
+        nn.init.constant_(self.time_modulation[-1].bias, 0)
+
         # Zero-out adaLN modulation layers in DiT blocks:
         for block in self.transformer_blocks:
-            nn.init.constant_(block.time_modulation[-1].weight, 0)
-            nn.init.constant_(block.time_modulation[-1].bias, 0)
             nn.init.constant_(block.latent_modulation[-1].weight, 0)
             nn.init.constant_(block.latent_modulation[-1].bias, 0)
 
         # Zero-out output layers:
-        nn.init.constant_(self.time_modulation[-1].weight, 0)
-        nn.init.constant_(self.time_modulation[-1].bias, 0)
-        nn.init.constant_(self.latent_modulation[-1].weight, 0)
-        nn.init.constant_(self.latent_modulation[-1].bias, 0)
+        nn.init.constant_(self.final_time_modulation[-1].weight, 0)
+        nn.init.constant_(self.final_time_modulation[-1].bias, 0)
+        nn.init.constant_(self.final_latent_modulation[-1].weight, 0)
+        nn.init.constant_(self.final_latent_modulation[-1].bias, 0)
         nn.init.constant_(self.proj_out.weight, 0)
         nn.init.constant_(self.proj_out.bias, 0)
 
@@ -317,6 +313,12 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
 
         z_latents = self.latent_embedder(z_latents, mask)
 
+        time_shift_msa, time_scale_msa, time_gate_msa, time_shift_mlp, time_scale_mlp, time_gate_mlp = (
+            self.time_modulation(
+                timestep
+            ).chunk(6, dim=1)
+        )
+
         # 2. Blocks
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
@@ -335,22 +337,22 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
                     create_custom_forward(block),
                     hidden_states,
                     None,
-                    timesteps_emb,
                     z_latents,
+                    time_shift_msa, time_scale_msa, time_gate_msa, time_shift_mlp, time_scale_mlp, time_gate_mlp,
                     **ckpt_kwargs,
                 )
             else:
                 hidden_states = block(
                     hidden_states,
-                    attention_mask=None,
-                    timestep=timesteps_emb,
-                    z_latents=z_latents,
+                    None,
+                    z_latents,
+                    time_shift_msa, time_scale_msa, time_gate_msa, time_shift_mlp, time_scale_mlp, time_gate_mlp,
                 )
 
         # 3. Output
-        shift, scale = self.time_modulation(F.silu(timesteps_emb)).chunk(2, dim=1)
+        shift, scale = self.final_time_modulation(F.silu(timesteps_emb)).chunk(2, dim=1)
         hidden_states = modulate(hidden_states, shift, scale)
-        shift, scale = self.latent_modulation(F.silu(z_latents)).chunk(2, dim=1)
+        shift, scale = self.final_latent_modulation(F.silu(z_latents)).chunk(2, dim=1)
         hidden_states = modulate(hidden_states, shift, scale)
         hidden_states = self.proj_out(hidden_states)
 

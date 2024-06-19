@@ -62,6 +62,7 @@ class TrainingArguments(transformers.TrainingArguments):
     remove_unused_columns: bool = False
     run_name: str = 'test'
     report_to: str = 'wandb'
+    ddp_find_unused_parameters: bool = False
     _gradient_checkpointing: bool = True
 
 
