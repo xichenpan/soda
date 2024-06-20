@@ -35,4 +35,4 @@ module load cuda/12.1 \
 #    train.py
 
 #srun torchrun --standalone --nnodes=1 --nproc-per-node=8 train.py
-srun train.py
+srun python train.py
