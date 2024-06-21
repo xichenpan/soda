@@ -9,10 +9,6 @@ from huggingface_hub import login
 from torchvision import transforms
 from transformers import SiglipImageProcessor
 from transformers import Trainer
-from torch.utils.data import DataLoader
-from ffcv.loader import Loader, OrderOption
-from ffcv.fields.decoders import RandomResizedCropRGBImageDecoder
-from ffcv.transforms import *
 
 from model.dit import BottleneckDiTLLaMA
 from model.encoder import Encoder
@@ -41,7 +37,7 @@ class TrainingArguments(transformers.TrainingArguments):
     data_dir: str = '/fsx-project/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
-    per_device_train_batch_size: int = 72
+    per_device_train_batch_size: int = 80
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
@@ -61,19 +57,13 @@ class TrainingArguments(transformers.TrainingArguments):
     seed: int = 42
     data_seed: int = 42
     bf16: bool = True
-    dataloader_num_workers: int = 4
+    dataloader_num_workers: int = 2
     dataloader_persistent_workers: bool = True
     remove_unused_columns: bool = False
     run_name: str = 'test'
     report_to: str = 'wandb'
     ddp_find_unused_parameters: bool = False
     _gradient_checkpointing: bool = True
-
-
-class SODATrainer(Trainer):
-
-    def get_train_dataloader(self) -> DataLoader:
-        return self.accelerator.prepare(self.train_dataset)
 
 
 if __name__ == "__main__":
@@ -111,94 +101,60 @@ if __name__ == "__main__":
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
     processor = SiglipImageProcessor.from_pretrained("google/siglip-so400m-patch14-384")
-    #
-    # # for encoder, at the training
-    # source_transform = transforms.Compose([
-    #     transforms.RandomApply([
-    #         transforms.RandomResizedCrop(data_args.source_image_size),
-    #         transforms.RandomHorizontalFlip(),
-    #     ], p=0.95),
-    #     transforms.Resize(data_args.source_image_size),
-    #     transforms.CenterCrop(data_args.source_image_size),
-    #     transforms.RandomApply([
-    #         transforms.RandAugment(),
-    #     ], p=0.65),
-    #     ProcessorWrapper(processor),
-    #     AddGaussianNoise(),
-    # ])
-    # # for decoder, at the training
-    # target_transform = transforms.Compose([
-    #     transforms.RandomApply([
-    #         transforms.RandomResizedCrop(data_args.target_image_size),
-    #         transforms.RandomHorizontalFlip(),
-    #     ], p=0.95),
-    #     transforms.Resize(data_args.target_image_size),
-    #     transforms.CenterCrop(data_args.target_image_size),
-    #     transforms.RandomApply([
-    #         transforms.RandAugment(),
-    #     ], p=0.65),
-    #     transforms.ToTensor(),
-    # ])
-    #
 
-    # def process_func(batch):
-    #     images = [img.convert("RGB") for img in batch["image"]]
-    #     return {
-    #         "x_source": [source_transform(img) for img in images],
-    #         "x_target": [target_transform(img) for img in images],
-    #     }
+    # for encoder, at the training
+    source_transform = transforms.Compose([
+        transforms.RandomApply([
+            transforms.RandomResizedCrop(data_args.source_image_size),
+            transforms.RandomHorizontalFlip(),
+        ], p=0.95),
+        transforms.Resize(data_args.source_image_size),
+        transforms.CenterCrop(data_args.source_image_size),
+        transforms.RandomApply([
+            transforms.RandAugment(),
+        ], p=0.65),
+        ProcessorWrapper(processor),
+        AddGaussianNoise(),
+    ])
+    # for decoder, at the training
+    target_transform = transforms.Compose([
+        transforms.RandomApply([
+            transforms.RandomResizedCrop(data_args.target_image_size),
+            transforms.RandomHorizontalFlip(),
+        ], p=0.95),
+        transforms.Resize(data_args.target_image_size),
+        transforms.CenterCrop(data_args.target_image_size),
+        transforms.RandomApply([
+            transforms.RandAugment(),
+        ], p=0.65),
+        transforms.ToTensor(),
+    ])
+
+
+    def process_func(batch):
+        images = [img.convert("RGB") for img in batch["image"]]
+        return {
+            "x_source": [source_transform(img) for img in images],
+            "x_target": [target_transform(img) for img in images],
+        }
+
 
     # If the dataset is gated/private, make sure you have run huggingface-cli login
-    # dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
-    #                        split="train")
-    # dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // 1024)
-    # dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
-    #                       remove_columns=["image", "label"])
-    # dataset = dataset.with_format("torch")
+    dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
+                           split="validation", streaming=True)
+    dataset.info.task_templates = None
+    # dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // training_args.per_device_train_batch_size)
+    dataset = dataset.map(process_func,
+                          batched=True, batch_size=training_args.per_device_train_batch_size,
+                          remove_columns=["image", "label"])
+    dataset = dataset.with_format("torch")
 
-    train_loader = Loader(
-        '/fsx-project/xichenpan/imagenet21k.ffcv',
-        os_cache=False,
-        distributed=False,
-        batch_size=training_args.per_device_train_batch_size,
-        num_workers=training_args.dataloader_num_workers,
-        order=OrderOption.RANDOM,
-        custom_field_mapper={"x_source": "image", "x_target": "image"},
-        pipelines={
-            'x_source': [
-                transforms.RandomApply([
-                    transforms.RandomResizedCrop(data_args.source_image_size),
-                    transforms.RandomHorizontalFlip(),
-                ], p=0.95),
-                transforms.Resize(data_args.source_image_size),
-                transforms.CenterCrop(data_args.source_image_size),
-                transforms.RandomApply([
-                    transforms.RandAugment(),
-                ], p=0.65),
-                ProcessorWrapper(processor),
-                AddGaussianNoise(),
-            ],
-            "x_target": [
-                transforms.RandomApply([
-                    transforms.RandomResizedCrop(data_args.target_image_size),
-                    transforms.RandomHorizontalFlip(),
-                ], p=0.95),
-                transforms.Resize(data_args.target_image_size),
-                transforms.CenterCrop(data_args.target_image_size),
-                transforms.RandomApply([
-                    transforms.RandAugment(),
-                ], p=0.65),
-                transforms.ToTensor(),
-            ]
-        }
-    )
-    print(train_loader)
-
-    trainer = SODATrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=train_loader,
+        train_dataset=dataset,
     )
+
     #
     #
     # def save_model_hook(models, weights, output_dir):
