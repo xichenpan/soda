@@ -14,3 +14,7 @@ pip install -U datasets
 pip install -U xformers
 pip install wandb
 pip install timm
+
+conda install cupy pkg-config libjpeg-turbo opencv numba -c conda-forge -c pytorch
+conda update ffmpeg
+pip install ffcv

@@ -9,6 +9,10 @@ from huggingface_hub import login
 from torchvision import transforms
 from transformers import SiglipImageProcessor
 from transformers import Trainer
+from torch.utils.data import DataLoader
+from ffcv.loader import Loader, OrderOption
+from ffcv.fields.decoders import RandomResizedCropRGBImageDecoder
+from ffcv.transforms import *
 
 from model.dit import BottleneckDiTLLaMA
 from model.encoder import Encoder
@@ -66,6 +70,12 @@ class TrainingArguments(transformers.TrainingArguments):
     _gradient_checkpointing: bool = True
 
 
+class SODATrainer(Trainer):
+
+    def get_train_dataloader(self) -> DataLoader:
+        return self.accelerator.prepare(self.train_dataset)
+
+
 if __name__ == "__main__":
     global local_rank
 
@@ -101,56 +111,93 @@ if __name__ == "__main__":
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
     processor = SiglipImageProcessor.from_pretrained("google/siglip-so400m-patch14-384")
+    #
+    # # for encoder, at the training
+    # source_transform = transforms.Compose([
+    #     transforms.RandomApply([
+    #         transforms.RandomResizedCrop(data_args.source_image_size),
+    #         transforms.RandomHorizontalFlip(),
+    #     ], p=0.95),
+    #     transforms.Resize(data_args.source_image_size),
+    #     transforms.CenterCrop(data_args.source_image_size),
+    #     transforms.RandomApply([
+    #         transforms.RandAugment(),
+    #     ], p=0.65),
+    #     ProcessorWrapper(processor),
+    #     AddGaussianNoise(),
+    # ])
+    # # for decoder, at the training
+    # target_transform = transforms.Compose([
+    #     transforms.RandomApply([
+    #         transforms.RandomResizedCrop(data_args.target_image_size),
+    #         transforms.RandomHorizontalFlip(),
+    #     ], p=0.95),
+    #     transforms.Resize(data_args.target_image_size),
+    #     transforms.CenterCrop(data_args.target_image_size),
+    #     transforms.RandomApply([
+    #         transforms.RandAugment(),
+    #     ], p=0.65),
+    #     transforms.ToTensor(),
+    # ])
+    #
 
-    # for encoder, at the training
-    source_transform = transforms.Compose([
-        transforms.RandomApply([
-            transforms.RandomResizedCrop(data_args.source_image_size),
-            transforms.RandomHorizontalFlip(),
-        ], p=0.95),
-        transforms.Resize(data_args.source_image_size),
-        transforms.CenterCrop(data_args.source_image_size),
-        transforms.RandomApply([
-            transforms.RandAugment(),
-        ], p=0.65),
-        ProcessorWrapper(processor),
-        AddGaussianNoise(),
-    ])
-    # for decoder, at the training
-    target_transform = transforms.Compose([
-        transforms.RandomApply([
-            transforms.RandomResizedCrop(data_args.target_image_size),
-            transforms.RandomHorizontalFlip(),
-        ], p=0.95),
-        transforms.Resize(data_args.target_image_size),
-        transforms.CenterCrop(data_args.target_image_size),
-        transforms.RandomApply([
-            transforms.RandAugment(),
-        ], p=0.65),
-        transforms.ToTensor(),
-    ])
-
-
-    def process_func(batch):
-        images = [img.convert("RGB") for img in batch["image"]]
-        return {
-            "x_source": [source_transform(img) for img in images],
-            "x_target": [target_transform(img) for img in images],
-        }
-
+    # def process_func(batch):
+    #     images = [img.convert("RGB") for img in batch["image"]]
+    #     return {
+    #         "x_source": [source_transform(img) for img in images],
+    #         "x_target": [target_transform(img) for img in images],
+    #     }
 
     # If the dataset is gated/private, make sure you have run huggingface-cli login
-    dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
-                           split="train")
-    dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // 1024)
-    dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
-                          remove_columns=["image", "label"])
-    dataset = dataset.with_format("torch")
+    # dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
+    #                        split="train")
+    # dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // 1024)
+    # dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
+    #                       remove_columns=["image", "label"])
+    # dataset = dataset.with_format("torch")
 
-    trainer = Trainer(
+    train_loader = Loader(
+        '/fsx-project/xichenpan/imagenet21k.ffcv',
+        os_cache=False,
+        distributed=False,
+        batch_size=training_args.per_device_train_batch_size,
+        num_workers=training_args.dataloader_num_workers,
+        order=OrderOption.RANDOM,
+        custom_field_mapper={"x_source": "image", "x_target": "image"},
+        pipelines={
+            'x_source': [
+                transforms.RandomApply([
+                    transforms.RandomResizedCrop(data_args.source_image_size),
+                    transforms.RandomHorizontalFlip(),
+                ], p=0.95),
+                transforms.Resize(data_args.source_image_size),
+                transforms.CenterCrop(data_args.source_image_size),
+                transforms.RandomApply([
+                    transforms.RandAugment(),
+                ], p=0.65),
+                ProcessorWrapper(processor),
+                AddGaussianNoise(),
+            ],
+            "x_target": [
+                transforms.RandomApply([
+                    transforms.RandomResizedCrop(data_args.target_image_size),
+                    transforms.RandomHorizontalFlip(),
+                ], p=0.95),
+                transforms.Resize(data_args.target_image_size),
+                transforms.CenterCrop(data_args.target_image_size),
+                transforms.RandomApply([
+                    transforms.RandAugment(),
+                ], p=0.65),
+                transforms.ToTensor(),
+            ]
+        }
+    )
+    print(train_loader)
+
+    trainer = SODATrainer(
         model=model,
         args=training_args,
-        train_dataset=dataset,
+        train_dataset=train_loader,
     )
     #
     #
