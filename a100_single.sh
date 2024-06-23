@@ -7,7 +7,8 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --gres=gpu:8
 #SBATCH -t 14-00:00:00
-#SBATCH --output=log.log
+#SBATCH --output=out
+#SBATCH --error=err
 
 export NCCL_SOCKET_IFNAME=ens32
 export FI_EFA_SET_CUDA_SYNC_MEMOPS=0
