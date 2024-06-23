@@ -14,6 +14,7 @@ from model.dit import BottleneckDiTLLaMA
 from model.encoder import Encoder
 from model.soda import SODA
 from utils import ProcessorWrapper, AddGaussianNoise
+from torch.utils.data import IterableDataset
 
 login(token="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")
 os.environ["WANDB_PROJECT"] = "SODA"
@@ -37,7 +38,8 @@ class TrainingArguments(transformers.TrainingArguments):
     data_dir: str = '/fsx-project/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
-    per_device_train_batch_size: int = 72
+    _per_device_train_batch_size: int = 72
+    per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
@@ -51,13 +53,13 @@ class TrainingArguments(transformers.TrainingArguments):
     warmup_steps: int = 5000
     logging_dir: str = '/fsx-project/xichenpan/log'
     logging_steps: int = 1
-    save_steps: int = 200
+    save_steps: int = 500
     save_total_limit: int = 30
     restore_callback_states_from_checkpoint: bool = True
     seed: int = 42
     data_seed: int = 42
     bf16: bool = True
-    dataloader_num_workers: int = 8
+    dataloader_num_workers: int = 0
     dataloader_persistent_workers: bool = True
     remove_unused_columns: bool = False
     run_name: str = 'test'
@@ -144,10 +146,29 @@ if __name__ == "__main__":
                            split="validation")
     dataset.info.task_templates = None
     dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // training_args.per_device_train_batch_size)
-    dataset = dataset.map(process_func,
-                          batched=True, batch_size=training_args.per_device_train_batch_size,
+    dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
                           remove_columns=["image", "label"])
     dataset = dataset.with_format("torch")
+
+
+    class Dataset2Iterable(IterableDataset):
+        """
+        Wrapper to use a HF dataset as pytorch IterableDataset to speed up data loading.
+        """
+
+        def __init__(self, dataset, batch_size=1, shuffle=True):
+            super(Dataset2Iterable).__init__()
+            self.dataset = dataset
+            self.batch_size = batch_size
+            self.shuffle = shuffle
+
+        def __iter__(self):
+            if self.shuffle:
+                self.dataset.shuffle()
+            return self.dataset.iter(batch_size=self.batch_size)
+
+
+    dataset = Dataset2Iterable(dataset, batch_size=training_args._per_device_train_batch_size, shuffle=True)
 
     trainer = Trainer(
         model=model,
