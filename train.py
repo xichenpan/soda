@@ -141,9 +141,9 @@ if __name__ == "__main__":
 
     # If the dataset is gated/private, make sure you have run huggingface-cli login
     dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
-                           split="validation", streaming=True)
+                           split="validation")
     dataset.info.task_templates = None
-    # dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // training_args.per_device_train_batch_size)
+    dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // training_args.per_device_train_batch_size)
     dataset = dataset.map(process_func,
                           batched=True, batch_size=training_args.per_device_train_batch_size,
                           remove_columns=["image", "label"])
