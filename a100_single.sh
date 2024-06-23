@@ -34,5 +34,5 @@ module load cuda/12.1 \
 #    --mixed_precision=bf16 \
 #    train.py
 
-#srun torchrun --standalone --nnodes=1 --nproc-per-node=8 train.py
-srun python train.py
+srun torchrun --standalone --nnodes=1 --nproc-per-node=8 train.py
+#srun python train.py
