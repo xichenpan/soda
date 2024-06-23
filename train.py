@@ -60,7 +60,7 @@ class TrainingArguments(transformers.TrainingArguments):
     data_seed: int = 42
     bf16: bool = True
     dataloader_num_workers: int = 0
-    dataloader_persistent_workers: bool = True
+    dataloader_persistent_workers: bool = False
     remove_unused_columns: bool = False
     run_name: str = 'test'
     report_to: str = 'wandb'
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
                            split="validation")
     dataset.info.task_templates = None
-    dataset = dataset.to_iterable_dataset(num_shards=len(dataset) // training_args.per_device_train_batch_size)
+    dataset = dataset.to_iterable_dataset(num_shards=64)
     dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
                           remove_columns=["image", "label"])
     dataset = dataset.with_format("torch")
