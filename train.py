@@ -37,7 +37,7 @@ class TrainingArguments(transformers.TrainingArguments):
     data_dir: str = '/fsx-project/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
-    per_device_train_batch_size: int = 80
+    per_device_train_batch_size: int = 72
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
