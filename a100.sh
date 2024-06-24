@@ -3,17 +3,17 @@
 #SBATCH --account=genai_interns
 #SBATCH --qos=genai_interns
 #SBATCH --nodes=4
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=8
 #SBATCH --cpus-per-task=64
-#SBATCH --gres=gpu:8
+#SBATCH --gres=gpu:12
 #SBATCH -t 14-00:00:00
 #SBATCH --output=out
 #SBATCH --error=err
 
-export OMP_NUM_THREADS=8
+export OMP_NUM_THREADS=1
 export FI_EFA_SET_CUDA_SYNC_MEMOPS=0
 export NCCL_P2P_NET_CHUNKSIZE=524288
-echo "NCCL_SOCKET_IFNAME=^lo,^docker0,^veth" > /etc/nccl.conf
+export NCCL_SOCKET_IFNAME=^lo,^docker0,^veth
 
 echo "HOSTNAME=$HOSTNAME"
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"
