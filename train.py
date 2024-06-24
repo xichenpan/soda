@@ -181,7 +181,7 @@ if __name__ == "__main__":
         return batch
 
 
-    dataset = Dataset2Iterable(dataset, batch_size=training_args._per_device_train_batch_size, shuffle=True)
+    dataset = Dataset2Iterable(dataset, batch_size=training_args._per_device_train_batch_size)
 
     trainer = Trainer(
         model=model,
