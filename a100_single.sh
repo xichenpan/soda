@@ -10,6 +10,7 @@
 #SBATCH --output=out
 #SBATCH --error=err
 
+export OMP_NUM_THREADS=1
 export NCCL_SOCKET_IFNAME=ens32
 export FI_EFA_SET_CUDA_SYNC_MEMOPS=0
 
