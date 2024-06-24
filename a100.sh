@@ -11,8 +11,9 @@
 #SBATCH --error=err
 
 export OMP_NUM_THREADS=8
-export NCCL_SOCKET_IFNAME=ens32
 export FI_EFA_SET_CUDA_SYNC_MEMOPS=0
+export NCCL_P2P_NET_CHUNKSIZE=524288
+echo "NCCL_SOCKET_IFNAME=^lo,^docker0,^veth" > /etc/nccl.conf
 
 echo "HOSTNAME=$HOSTNAME"
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"

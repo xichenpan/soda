@@ -72,8 +72,8 @@ class Encoder(nn.Module):
             module = layer.self_attn
             module.forward = SDPAforward(module)
 
-        if gradient_checkpointing:
-            self.model.gradient_checkpointing_enable()
+        # if gradient_checkpointing:
+        #     self.model.gradient_checkpointing_enable()
 
     def forward(self, x):
         return self.model(x, output_attentions=False, output_hidden_states=False).pooler_output
