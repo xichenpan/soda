@@ -146,7 +146,7 @@ if __name__ == "__main__":
     dataset = dataset.to_iterable_dataset(num_shards=64)
     dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
                           remove_columns=["image", "label"])
-    dataset = dataset.shuffle(seed=training_args.data_seed, buffer_size=10_000)
+    dataset = dataset.shuffle(seed=training_args.data_seed)
     dataset = dataset.with_format("torch")
 
     trainer = Trainer(
