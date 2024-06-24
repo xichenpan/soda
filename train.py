@@ -145,10 +145,15 @@ if __name__ == "__main__":
                            split="train")
     dataset.info.task_templates = None
     dataset = dataset.to_iterable_dataset(num_shards=64)
-    dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
-                          remove_columns=["image", "label"])
-    dataset = dataset.shuffle(seed=training_args.data_seed)
-    dataset = dataset.with_format("torch")
+    # filter bad images
+    for batch in dataset:
+        print(batch["image"])
+
+    dataset = dataset.filter(lambda x: x["image"].size[0] > 0 and x["image"].size[1] > 0)
+    # dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
+    #                       remove_columns=["image", "label"])
+    # dataset = dataset.shuffle(seed=training_args.data_seed)
+    # dataset = dataset.with_format("torch")
 
     trainer = Trainer(
         model=model,
