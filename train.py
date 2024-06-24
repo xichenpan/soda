@@ -149,6 +149,7 @@ if __name__ == "__main__":
     dataset = dataset.to_iterable_dataset(num_shards=64)
     dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
                           remove_columns=["image", "label"])
+    dataset = dataset.shuffle(seed=training_args.data_seed, buffer_size=10_000)
     dataset = dataset.with_format("torch")
 
 
@@ -157,16 +158,13 @@ if __name__ == "__main__":
         Wrapper to use a HF dataset as pytorch IterableDataset to speed up data loading.
         """
 
-        def __init__(self, dataset, batch_size=1, shuffle=True):
+        def __init__(self, dataset, batch_size=1):
             super(Dataset2Iterable).__init__()
             self.dataset = dataset
             self.batch_size = batch_size
-            self.shuffle = shuffle
 
         def __iter__(self):
-            if self.shuffle:
-                self.dataset.shuffle()
-            return self.dataset.iter(batch_size=self.batch_size)
+            return self.dataset.take(self.batch_size)
 
 
     def cat_data_collator(features):
