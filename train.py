@@ -164,7 +164,7 @@ if __name__ == "__main__":
             self.batch_size = batch_size
 
         def __iter__(self):
-            return self.dataset.take(self.batch_size)
+            return self.dataset.iter(batch_size=self.batch_size)
 
 
     def cat_data_collator(features):
