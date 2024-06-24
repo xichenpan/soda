@@ -33,8 +33,8 @@ class DataArguments:
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
     # deepspeed = "./deepspeed_config.json"
-    output_dir: str = '/fsx-project/xichenpan/output'
-    data_dir: str = '/fsx-project/xichenpan/.cache'
+    output_dir: str = '~/xichenpan/output'
+    data_dir: str = '~/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
     per_device_train_batch_size: int = 72
@@ -49,7 +49,7 @@ class TrainingArguments(transformers.TrainingArguments):
     max_grad_norm: float = 0.5
     lr_scheduler_type: str = 'constant_with_warmup'
     warmup_steps: int = 5000
-    logging_dir: str = '/fsx-project/xichenpan/log'
+    logging_dir: str = '~/xichenpan/log'
     logging_steps: int = 1
     save_steps: int = 500
     save_total_limit: int = 30
@@ -145,15 +145,11 @@ if __name__ == "__main__":
                            split="train")
     dataset.info.task_templates = None
     dataset = dataset.to_iterable_dataset(num_shards=64)
-    # filter bad images
-    for batch in dataset:
-        print(batch["image"])
-
     dataset = dataset.filter(lambda x: x["image"].size[0] > 0 and x["image"].size[1] > 0)
-    # dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
-    #                       remove_columns=["image", "label"])
-    # dataset = dataset.shuffle(seed=training_args.data_seed)
-    # dataset = dataset.with_format("torch")
+    dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
+                          remove_columns=["image", "label"])
+    dataset = dataset.shuffle(seed=training_args.data_seed)
+    dataset = dataset.with_format("torch")
 
     trainer = Trainer(
         model=model,
