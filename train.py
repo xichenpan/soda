@@ -1,5 +1,4 @@
 import os
-from collections.abc import Mapping
 from dataclasses import dataclass
 
 import torch
@@ -7,7 +6,6 @@ import transformers
 from datasets import load_dataset
 from diffusers.models import AutoencoderKL
 from huggingface_hub import login
-from torch.utils.data import IterableDataset
 from torchvision import transforms
 from transformers import SiglipImageProcessor
 from transformers import Trainer
@@ -39,8 +37,7 @@ class TrainingArguments(transformers.TrainingArguments):
     data_dir: str = '/fsx-project/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
-    _per_device_train_batch_size: int = 72
-    per_device_train_batch_size: int = 1
+    per_device_train_batch_size: int = 72
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
@@ -60,8 +57,8 @@ class TrainingArguments(transformers.TrainingArguments):
     seed: int = 42
     data_seed: int = 42
     bf16: bool = True
-    dataloader_num_workers: int = 0
-    dataloader_persistent_workers: bool = False
+    dataloader_num_workers: int = 8
+    dataloader_persistent_workers: bool = True
     remove_unused_columns: bool = False
     run_name: str = 'test'
     report_to: str = 'wandb'
@@ -152,42 +149,10 @@ if __name__ == "__main__":
     dataset = dataset.shuffle(seed=training_args.data_seed, buffer_size=10_000)
     dataset = dataset.with_format("torch")
 
-
-    class Dataset2Iterable(IterableDataset):
-        """
-        Wrapper to use a HF dataset as pytorch IterableDataset to speed up data loading.
-        """
-
-        def __init__(self, dataset, batch_size=1):
-            super(Dataset2Iterable).__init__()
-            self.dataset = dataset
-            self.batch_size = batch_size
-
-        def __iter__(self):
-            return self.dataset.iter(batch_size=self.batch_size)
-
-
-    def cat_data_collator(features):
-        if not isinstance(features[0], Mapping):
-            features = [vars(f) for f in features]
-        first = features[0]
-        batch = {}
-
-        # Handling of all other possible keys.
-        # Again, we will use the first element to figure out which key/values are not None for this model.
-        for k, v in first.items():
-            batch[k] = torch.cat([f[k] for f in features])
-
-        return batch
-
-
-    dataset = Dataset2Iterable(dataset, batch_size=training_args._per_device_train_batch_size)
-
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
-        data_collator=cat_data_collator,
     )
 
     #
