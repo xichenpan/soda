@@ -4,8 +4,8 @@
 #SBATCH --qos=genai_interns
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=8
-#SBATCH --cpus-per-task=64
-#SBATCH --gres=gpu:12
+#SBATCH --cpus-per-task=12
+#SBATCH --gres=gpu:8
 #SBATCH -t 14-00:00:00
 #SBATCH --output=out
 #SBATCH --error=err
