@@ -1,4 +1,5 @@
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import torch
@@ -6,6 +7,7 @@ import transformers
 from datasets import load_dataset
 from diffusers.models import AutoencoderKL
 from huggingface_hub import login
+from torch.utils.data import IterableDataset
 from torchvision import transforms
 from transformers import SiglipImageProcessor
 from transformers import Trainer
@@ -14,7 +16,6 @@ from model.dit import BottleneckDiTLLaMA
 from model.encoder import Encoder
 from model.soda import SODA
 from utils import ProcessorWrapper, AddGaussianNoise
-from torch.utils.data import IterableDataset
 
 login(token="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")
 os.environ["WANDB_PROJECT"] = "SODA"
@@ -168,12 +169,27 @@ if __name__ == "__main__":
             return self.dataset.iter(batch_size=self.batch_size)
 
 
+    def cat_data_collator(features):
+        if not isinstance(features[0], Mapping):
+            features = [vars(f) for f in features]
+        first = features[0]
+        batch = {}
+
+        # Handling of all other possible keys.
+        # Again, we will use the first element to figure out which key/values are not None for this model.
+        for k, v in first.items():
+            batch[k] = torch.cat([f[k] for f in features])
+
+        return batch
+
+
     dataset = Dataset2Iterable(dataset, batch_size=training_args._per_device_train_batch_size, shuffle=True)
 
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
+        data_collator=cat_data_collator,
     )
 
     #
