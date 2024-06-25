@@ -58,7 +58,7 @@ class TrainingArguments(transformers.TrainingArguments):
     seed: int = 42
     data_seed: int = 42
     bf16: bool = True
-    dataloader_num_workers: int = 4
+    dataloader_num_workers: int = 32
     dataloader_persistent_workers: bool = True
     dataloader_drop_last: bool = True
     remove_unused_columns: bool = False
