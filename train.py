@@ -61,6 +61,7 @@ class TrainingArguments(transformers.TrainingArguments):
     dataloader_num_workers: int = 32
     dataloader_persistent_workers: bool = True
     dataloader_drop_last: bool = True
+    dataloader_prefetch_factor: int = 4
     remove_unused_columns: bool = False
     run_name: str = 'test'
     report_to: str = 'wandb'
