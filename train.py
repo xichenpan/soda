@@ -22,12 +22,13 @@ os.environ["WANDB_PROJECT"] = "SODA"
 @dataclass
 class ModelArguments:
     drop_prob: float = 0.1
+    encoder_id: str = "google/siglip-large-patch16-256"
 
 
 @dataclass
 class DataArguments:
-    source_image_size: int = 385
-    target_image_size: int = 512
+    source_image_size: int = 256
+    target_image_size: int = 256
 
 
 @dataclass
@@ -41,7 +42,7 @@ class TrainingArguments(transformers.TrainingArguments):
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
-    learning_rate: float = 5e-5
+    learning_rate: float = 1e-4
     weight_decay: float = 0.05
     adam_beta1: float = 0.9
     adam_beta2: float = 0.95
@@ -57,7 +58,7 @@ class TrainingArguments(transformers.TrainingArguments):
     seed: int = 42
     data_seed: int = 42
     bf16: bool = True
-    dataloader_num_workers: int = 8
+    dataloader_num_workers: int = 4
     dataloader_persistent_workers: bool = True
     dataloader_drop_last: bool = True
     remove_unused_columns: bool = False
@@ -83,8 +84,11 @@ if __name__ == "__main__":
 
     assert data_args.target_image_size % 8 == 0, "Image size must be divisible by 8 (for the VAE encoder)."
     latent_size = data_args.target_image_size // 8
-    encoder = Encoder(training_args._gradient_checkpointing)
-    decoder = BottleneckDiTLLaMA(gradient_checkpointing=training_args._gradient_checkpointing)
+    encoder = Encoder(model_args.encoder_id, training_args._gradient_checkpointing)
+    decoder = BottleneckDiTLLaMA(
+        num_embeds_ada_norm=encoder.model.config.hidden_size,
+        gradient_checkpointing=training_args._gradient_checkpointing
+    )
     model = SODA(
         encoder=encoder.to(compute_dtype),
         vae=AutoencoderKL.from_pretrained("stabilityai/sdxl-vae", torch_dtype=compute_dtype),
@@ -101,7 +105,7 @@ if __name__ == "__main__":
 
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
-    processor = SiglipImageProcessor.from_pretrained("google/siglip-so400m-patch14-384")
+    processor = SiglipImageProcessor.from_pretrained(model_args.encoder_id)
 
     # for encoder, at the training
     source_transform = transforms.Compose([

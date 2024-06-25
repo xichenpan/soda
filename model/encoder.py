@@ -64,9 +64,9 @@ class Encoder(nn.Module):
     An encoder network (image -> feature_dim)
     """
 
-    def __init__(self, gradient_checkpointing):
+    def __init__(self, encoder_id, gradient_checkpointing):
         super(Encoder, self).__init__()
-        self.model = SiglipVisionModel.from_pretrained("google/siglip-so400m-patch14-384")
+        self.model = SiglipVisionModel.from_pretrained(encoder_id)
         # replace the attention layer with our own implementation
         for layer in self.model.vision_model.encoder.layers:
             module = layer.self_attn

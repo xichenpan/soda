@@ -144,7 +144,7 @@ class BasicTransformerBlock(nn.Module):
 
         self.latent_modulation = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(dim, 6 * dim, bias=True)
+            nn.Linear(self.num_embeds_ada_norm, 6 * dim, bias=True)
         )
 
         # 1. Self-Attn
@@ -283,11 +283,11 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
 
         self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=1)
         self.timestep_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=num_embeds_ada_norm)
-        self.latent_embedder = LatentEmbedding(n_channels=self.inner_dim)
+        self.latent_embedder = LatentEmbedding(n_channels=num_embeds_ada_norm)
 
         self.time_modulation = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(self.inner_dim, 6 * self.inner_dim, bias=True)
+            nn.Linear(num_embeds_ada_norm, 6 * self.inner_dim, bias=True)
         )
 
         self.transformer_blocks = nn.ModuleList(
@@ -312,11 +312,11 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
         self.norm_out = nn.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6)
         self.final_time_modulation = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(self.inner_dim, 2 * self.inner_dim, bias=True)
+            nn.Linear(num_embeds_ada_norm, 2 * self.inner_dim, bias=True)
         )
         self.final_latent_modulation = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(self.inner_dim, 2 * self.inner_dim, bias=True)
+            nn.Linear(num_embeds_ada_norm, 2 * self.inner_dim, bias=True)
         )
         self.proj_out = nn.Linear(
             self.inner_dim, patch_size * patch_size * self.out_channels
@@ -437,10 +437,11 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
 class BottleneckDiTLLaMA(nn.Module):
     def __init__(
             self,
+            num_embeds_ada_norm,
             gradient_checkpointing: bool = True,
     ):
         super().__init__()
-        self.transformer = DiTTransformer2DModel()
+        self.transformer = DiTTransformer2DModel(num_embeds_ada_norm=num_embeds_ada_norm)
         self.noise_scheduler = GaussianDiffusion.from_pretrained("facebook/DiT-XL-2-256",
                                                                  subfolder="scheduler")
         self.transformer.train()
