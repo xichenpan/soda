@@ -149,8 +149,9 @@ if __name__ == "__main__":
     dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
                            split="train")
     dataset.info.task_templates = None
-    dataset = dataset.to_iterable_dataset(num_shards=64)
-    dataset = dataset.filter(lambda x: x["image"].size[0] > 0 and x["image"].size[1] > 0)
+    dataset = dataset.to_iterable_dataset(num_shards=128)
+    dataset = dataset.filter(lambda x: x["image"].size[0] > 0 and x["image"].size[1] > 0,
+                             batched=True, batch_size=training_args.per_device_train_batch_size)
     dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
                           remove_columns=["image", "label"])
     dataset = dataset.shuffle(seed=training_args.data_seed)
