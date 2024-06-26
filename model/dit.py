@@ -8,7 +8,6 @@ from diffusers.models.embeddings import Timesteps, TimestepEmbedding
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.utils import is_torch_version
 from torch import nn
-from transformers import PretrainedConfig, PreTrainedModel
 from transformers.models.llama.modeling_llama import LlamaMLP, LlamaAttention, LlamaConfig, Cache, apply_rotary_pos_emb, \
     repeat_kv
 
@@ -435,32 +434,19 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
         return output
 
 
-class BottleneckDiTLLaMAConfig(PretrainedConfig):
-    model_type = "bottleneck-dit-llama"
-
+class BottleneckDiTLLaMA(nn.Module):
     def __init__(
             self,
-            num_embeds_ada_norm: int,
+            num_embeds_ada_norm,
             gradient_checkpointing: bool = True,
-            **kwargs,
     ):
-        super().__init__(**kwargs)
-        self.num_embeds_ada_norm = num_embeds_ada_norm
-        self.gradient_checkpointing = gradient_checkpointing
-
-
-class BottleneckDiTLLaMA(PreTrainedModel):
-    def __init__(
-            self,
-            config: BottleneckDiTLLaMAConfig,
-    ):
-        super().__init__(config)
-        self.transformer = DiTTransformer2DModel(num_embeds_ada_norm=config.num_embeds_ada_norm)
+        super().__init__()
+        self.transformer = DiTTransformer2DModel(num_embeds_ada_norm=num_embeds_ada_norm)
         self.noise_scheduler = GaussianDiffusion.from_pretrained("facebook/DiT-XL-2-256",
                                                                  subfolder="scheduler")
         self.transformer.train()
         self.transformer.enable_xformers_memory_efficient_attention()
-        if config.gradient_checkpointing:
+        if gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
 
     def forward(
@@ -476,7 +462,7 @@ class BottleneckDiTLLaMA(PreTrainedModel):
         noise = torch.randn_like(latents, device=latents.device)
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-        model_pred = self.transformer(noisy_latents, timesteps, z_latents, mask)
+        model_pred = self.transformer(noisy_latents, timesteps, z_latents.to(latents.device), mask)
         model_output, model_var_values = torch.split(model_pred, self.transformer.config.in_channels, dim=1)
         frozen_out = torch.cat([model_output.detach(), model_var_values], dim=1)
 
@@ -492,3 +478,7 @@ class BottleneckDiTLLaMA(PreTrainedModel):
         )
 
         return loss
+
+
+if __name__ == "__main__":
+    model = BottleneckDiTLLaMA()
