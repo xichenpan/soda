@@ -462,7 +462,7 @@ class BottleneckDiTLLaMA(nn.Module):
         noise = torch.randn_like(latents, device=latents.device)
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-        model_pred = self.transformer(noisy_latents, timesteps, z_latents.to(latents.device), mask)
+        model_pred = self.transformer(noisy_latents, timesteps, z_latents, mask)
         model_output, model_var_values = torch.split(model_pred, self.transformer.config.in_channels, dim=1)
         frozen_out = torch.cat([model_output.detach(), model_var_values], dim=1)
 

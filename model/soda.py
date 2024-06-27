@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class SODA(nn.Module):
-    def __init__(self, encoder, vae, decoder, drop_prob, dtype):
+    def __init__(self, encoder, vae, decoder, drop_prob):
         ''' SODA proposed by "SODA: Bottleneck Diffusion Models for Representation Learning", and \
             DDPM proposed by "Denoising Diffusion Probabilistic Models", as well as \
             DDIM sampler proposed by "Denoising Diffusion Implicit Models".
@@ -20,7 +20,6 @@ class SODA(nn.Module):
         self.vae = vae
         self.decoder = decoder
         self.drop_prob = drop_prob
-        self.dtype = dtype
 
         self.freeze_modules([self.encoder, self.vae])
 
@@ -45,11 +44,11 @@ class SODA(nn.Module):
         '''
         # get the dtype of encoder params
         with torch.no_grad():
-            x_target = self.vae.encode(x_target.to(self.dtype)).latent_dist.sample()
+            x_target = self.vae.encode(x_target).latent_dist.sample()
             x_target = x_target * self.vae.config.scaling_factor
             # 0 for conditional, 1 for unconditional
-            mask = torch.bernoulli(torch.zeros(x_target.shape[0]) + self.drop_prob).to(x_target.device, self.dtype)
-            z = self.encoder(x_source.to(self.dtype))
+            mask = torch.bernoulli(torch.zeros(x_target.shape[0]) + self.drop_prob).to(x_target.device)
+            z = self.encoder(x_source)
 
         loss = self.decoder(x_target, z, mask)
 

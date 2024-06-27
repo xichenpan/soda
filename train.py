@@ -38,7 +38,7 @@ class TrainingArguments(transformers.TrainingArguments):
     data_dir: str = '~/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
-    per_device_train_batch_size: int = 320
+    per_device_train_batch_size: int = 64
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
@@ -58,7 +58,7 @@ class TrainingArguments(transformers.TrainingArguments):
     seed: int = 42
     data_seed: int = 42
     bf16: bool = True
-    dataloader_num_workers: int = 24
+    dataloader_num_workers: int = 12
     dataloader_persistent_workers: bool = True
     dataloader_drop_last: bool = True
     dataloader_prefetch_factor: int = 2
@@ -66,7 +66,7 @@ class TrainingArguments(transformers.TrainingArguments):
     run_name: str = 'test'
     report_to: str = 'wandb'
     ddp_find_unused_parameters: bool = False
-    _gradient_checkpointing: bool = True
+    _gradient_checkpointing: bool = False
 
 
 if __name__ == "__main__":
@@ -77,11 +77,6 @@ if __name__ == "__main__":
     )
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     local_rank = training_args.local_rank
-    compute_dtype = (
-        torch.float16
-        if training_args.fp16
-        else (torch.bfloat16 if training_args.bf16 else torch.float32)
-    )
 
     assert data_args.target_image_size % 8 == 0, "Image size must be divisible by 8 (for the VAE encoder)."
     latent_size = data_args.target_image_size // 8
@@ -91,11 +86,10 @@ if __name__ == "__main__":
         gradient_checkpointing=training_args._gradient_checkpointing
     )
     model = SODA(
-        encoder=encoder.to(compute_dtype),
-        vae=AutoencoderKL.from_pretrained("stabilityai/sdxl-vae", torch_dtype=compute_dtype),
-        decoder=decoder.to(compute_dtype),
+        encoder=encoder,
+        vae=AutoencoderKL.from_pretrained("stabilityai/sdxl-vae"),
+        decoder=decoder,
         drop_prob=model_args.drop_prob,
-        dtype=compute_dtype,
     )
 
     if local_rank == 0:
@@ -138,7 +132,7 @@ if __name__ == "__main__":
 
 
     def process_func(item):
-        return source_transform(item["image"]), target_transform(item["image"])
+        return source_transform(item["image"].convert("RGB")), target_transform(item["image"].convert("RGB"))
 
 
     def collate_fn(batch):
