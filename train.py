@@ -3,13 +3,13 @@ from dataclasses import dataclass
 
 import torch
 import transformers
-from datasets import load_dataset
 from diffusers.models import AutoencoderKL
 from huggingface_hub import login
 from torchvision import transforms
 from transformers import SiglipImageProcessor
 from transformers import Trainer
 
+from data.dataset import get_dataset
 from model.dit import BottleneckDiTLLaMA
 from model.encoder import Encoder
 from model.soda import SODA
@@ -58,10 +58,10 @@ class TrainingArguments(transformers.TrainingArguments):
     seed: int = 42
     data_seed: int = 42
     bf16: bool = True
-    dataloader_num_workers: int = 32
+    dataloader_num_workers: int = 24
     dataloader_persistent_workers: bool = True
     dataloader_drop_last: bool = True
-    dataloader_prefetch_factor: int = 4
+    dataloader_prefetch_factor: int = 2
     remove_unused_columns: bool = False
     run_name: str = 'test'
     report_to: str = 'wandb'
@@ -137,64 +137,29 @@ if __name__ == "__main__":
     ])
 
 
-    def process_func(batch):
-        images = [img.convert("RGB") for img in batch["image"]]
+    def process_func(item):
+        return source_transform(item["image"]), target_transform(item["image"])
+
+
+    def collate_fn(batch):
+        source, target = [list(x) for x in zip(*batch)]
         return {
-            "x_source": [source_transform(img) for img in images],
-            "x_target": [target_transform(img) for img in images],
+            "x_source": torch.stack(source),
+            "x_target": torch.stack(target)
         }
 
 
-    # If the dataset is gated/private, make sure you have run huggingface-cli login
-    dataset = load_dataset("ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
-                           split="train")
-    dataset.info.task_templates = None
-    dataset = dataset.to_iterable_dataset(num_shards=128)
-    dataset = dataset.filter(lambda x: x["image"].size[0] > 0 and x["image"].size[1] > 0,
-                             batched=True, batch_size=training_args.per_device_train_batch_size)
-    dataset = dataset.map(process_func, batched=True, batch_size=training_args.per_device_train_batch_size,
-                          remove_columns=["image", "label"])
-    dataset = dataset.shuffle(seed=training_args.data_seed)
-    dataset = dataset.with_format("torch")
+    dataset = get_dataset(
+        process_fn=process_func,
+        data_dir=training_args.data_dir,
+        seed=training_args.data_seed,
+    )
 
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
+        data_collator=collate_fn,
     )
-
-    #
-    #
-    # def save_model_hook(models, weights, output_dir):
-    #     if trainer.args.local_rank in [-1, 0]:
-    #         ema_unet.save_pretrained(os.path.join(output_dir, "unet_ema"))
-    #
-    #         for i, model in enumerate(models):
-    #             model.save_pretrained(os.path.join(output_dir, "unet"))
-    #
-    #             # make sure to pop weight so that corresponding model is not saved again
-    #             weights.pop()
-    #
-    #
-    # def load_model_hook(models, input_dir):
-    #     load_model = EMAModel.from_pretrained(os.path.join(input_dir, "unet_ema"), UNet2DConditionModel)
-    #     ema_unet.load_state_dict(load_model.state_dict())
-    #     ema_unet.to(accelerator.device)
-    #     del load_model
-    #
-    #     for _ in range(len(models)):
-    #         # pop models so that they are not loaded again
-    #         model = models.pop()
-    #
-    #         # load diffusers style into model
-    #         load_model = UNet2DConditionModel.from_pretrained(input_dir, subfolder="unet")
-    #         model.register_to_config(**load_model.config)
-    #
-    #         model.load_state_dict(load_model.state_dict())
-    #         del load_model
-    #
-    #
-    # trainer.register_save_state_pre_hook(save_model_hook)
-    # trainer.register_load_state_pre_hook(load_model_hook)
 
     trainer.train()

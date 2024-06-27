@@ -14,6 +14,9 @@ pip install -U datasets
 pip install -U xformers
 pip install wandb
 pip install timm
+pip install git+https://github.com/microsoft/infinibatch
+pip install OmegaConf
+pip install numpy==1.26.4
 
 conda install cupy pkg-config libjpeg-turbo opencv numba -c conda-forge -c pytorch
 conda update ffmpeg
