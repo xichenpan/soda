@@ -27,4 +27,4 @@ conda activate soda
 #    nccl/2.18.3-cuda.12.1 \
 #    nccl_efa/1.24.1-nccl.2.18.3-cuda.12.1
 
-srun torchrun --nproc-per-node=8 train.py
+srun torchrun --standalone --nnodes=1 --nproc-per-node=8 train.py
