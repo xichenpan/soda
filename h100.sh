@@ -23,8 +23,8 @@ source ~/.bashrc
 source activate base
 conda activate soda
 
-module load cuda/12.1 \
-    nccl/2.18.3-cuda.12.1 \
-    nccl_efa/1.24.1-nccl.2.18.3-cuda.12.1
+#module load cuda/12.1 \
+#    nccl/2.18.3-cuda.12.1 \
+#    nccl_efa/1.24.1-nccl.2.18.3-cuda.12.1
 
 srun torchrun --nproc-per-node=8 train.py
