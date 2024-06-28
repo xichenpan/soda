@@ -47,7 +47,7 @@ class SODA(nn.Module):
             x_target = self.vae.encode(x_target).latent_dist.sample()
             x_target = x_target * self.vae.config.scaling_factor
             # 0 for conditional, 1 for unconditional
-            mask = torch.bernoulli(torch.zeros(x_target.shape[0]) + self.drop_prob).to(x_target.device)
+            mask = torch.bernoulli(torch.zeros(x_target.shape[0], device=x_target.device) + self.drop_prob)
             z = self.encoder(x_source)
 
         loss = self.decoder(x_target, z, mask)

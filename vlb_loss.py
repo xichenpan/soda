@@ -1,5 +1,6 @@
 import torch
 from diffusers.schedulers import DDPMScheduler
+from torch import nn
 
 
 def approx_standard_normal_cdf(x):
@@ -75,40 +76,37 @@ def normal_kl(mean1, logvar1, mean2, logvar2):
     )
 
 
-class GaussianDiffusion(DDPMScheduler):
-    """
-    Utilities for training and sampling diffusion models.
-    Original ported from this codebase:
-    https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/diffusion_utils_2.py#L42
-    :param betas: a 1-D numpy array of betas for each diffusion timestep,
-                  starting at T and going to 1.
-    """
-
-    def __init__(self):
+class GaussianDiffusion(nn.Module):
+    def __init__(self, alphas, alphas_cumprod, betas):
         super().__init__()
-        self.alphas_cumprod_prev = torch.cat([torch.tensor([1.0]), self.alphas_cumprod[:-1]])
+
+        self.register_buffer('alphas', alphas)
+        self.register_buffer('alphas_cumprod', alphas_cumprod)
+        self.register_buffer('betas', betas)
+
+        self.register_buffer('alphas_cumprod_prev', torch.cat([torch.tensor([1.0]), self.alphas_cumprod[:-1]]))
         # calculations for diffusion q(x_t | x_{t-1}) and others
-        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
-        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
-        self.log_one_minus_alphas_cumprod = torch.log(1.0 - self.alphas_cumprod)
-        self.sqrt_recip_alphas_cumprod = torch.sqrt(1.0 / self.alphas_cumprod)
-        self.sqrt_recipm1_alphas_cumprod = torch.sqrt(1.0 / self.alphas_cumprod - 1)
+        self.register_buffer('sqrtalphas_cumprod', torch.sqrt(self.alphas_cumprod))
+        self.register_buffer('sqrt_one_minusalphas_cumprod', torch.sqrt(1.0 - self.alphas_cumprod))
+        self.register_buffer('log_one_minusalphas_cumprod', torch.log(1.0 - self.alphas_cumprod))
+        self.register_buffer('sqrt_recipalphas_cumprod', torch.sqrt(1.0 / self.alphas_cumprod))
+        self.register_buffer('sqrt_recipm1alphas_cumprod', torch.sqrt(1.0 / self.alphas_cumprod - 1))
 
         # calculations for posterior q(x_{t-1} | x_t, x_0)
-        self.posterior_variance = (
+        self.register_buffer('posterior_variance', (
                 self.betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
-        )
+        ))
         # below: log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
-        self.posterior_log_variance_clipped = torch.log(
+        self.register_buffer('posterior_log_variance_clipped', torch.log(
             torch.cat([self.posterior_variance[1, None], self.posterior_variance[1:]])
-        ) if len(self.posterior_variance) > 1 else torch.tensor([])
+        ) if len(self.posterior_variance) > 1 else torch.tensor([]))
 
-        self.posterior_mean_coef1 = (
+        self.register_buffer('posterior_mean_coef1', (
                 self.betas * torch.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
-        )
-        self.posterior_mean_coef2 = (
+        ))
+        self.register_buffer('posterior_mean_coef2', (
                 (1.0 - self.alphas_cumprod_prev) * self.alphas / (1.0 - self.alphas_cumprod)
-        )
+        ))
 
     def q_posterior_mean_variance(self, x_start, x_t, t):
         """
@@ -196,8 +194,8 @@ class GaussianDiffusion(DDPMScheduler):
     def _predict_xstart_from_eps(self, x_t, t, eps):
         assert x_t.shape == eps.shape
         return (
-                _extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
-                - _extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * eps
+                _extract_into_tensor(self.sqrt_recipalphas_cumprod, t, x_t.shape) * x_t
+                - _extract_into_tensor(self.sqrt_recipm1alphas_cumprod, t, x_t.shape) * eps
         )
 
     def _vb_terms_bpd(
@@ -243,7 +241,7 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
                             dimension equal to the length of timesteps.
     :return: a tensor of shape [batch_size, 1, ...] where the shape has K dims.
     """
-    res = arr.to(device=timesteps.device)[timesteps].float()
+    res = arr[timesteps].float()
     while len(res.shape) < len(broadcast_shape):
         res = res[..., None]
     return res + torch.zeros(broadcast_shape, device=timesteps.device)

@@ -6,6 +6,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.embeddings import PatchEmbed
 from diffusers.models.embeddings import Timesteps, TimestepEmbedding
 from diffusers.models.modeling_utils import ModelMixin
+from diffusers.schedulers import DDPMScheduler
 from diffusers.utils import is_torch_version
 from torch import nn
 from transformers.models.llama.modeling_llama import LlamaMLP, LlamaAttention, LlamaConfig, Cache, apply_rotary_pos_emb, \
@@ -374,7 +375,7 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
         hidden_states = self.pos_embed(hidden_states)
 
         timesteps_proj = self.time_proj(timestep)
-        timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=hidden_states.dtype))  # (N, D)
+        timesteps_emb = self.timestep_embedder(timesteps_proj)  # (N, D)
 
         z_latents = self.latent_embedder(z_latents, mask)
 
@@ -442,8 +443,12 @@ class BottleneckDiTLLaMA(nn.Module):
     ):
         super().__init__()
         self.transformer = DiTTransformer2DModel(num_embeds_ada_norm=num_embeds_ada_norm)
-        self.noise_scheduler = GaussianDiffusion.from_pretrained("facebook/DiT-XL-2-256",
-                                                                 subfolder="scheduler")
+        self.noise_scheduler = DDPMScheduler.from_pretrained("facebook/DiT-XL-2-256", subfolder="scheduler")
+        self.vlb_loss = GaussianDiffusion(
+            alphas=self.noise_scheduler.alphas,
+            alphas_cumprod=self.noise_scheduler.alphas_cumprod,
+            betas=self.noise_scheduler.betas,
+        )
         self.transformer.train()
         self.transformer.enable_xformers_memory_efficient_attention()
         if gradient_checkpointing:
@@ -468,7 +473,7 @@ class BottleneckDiTLLaMA(nn.Module):
 
         loss = (
                 F.mse_loss(model_output.float(), noise.float(), reduction="mean") +
-                self.noise_scheduler._vb_terms_bpd(
+                self.vlb_loss._vb_terms_bpd(
                     model=lambda *args, r=frozen_out: r,
                     x_start=latents,
                     x_t=noisy_latents,

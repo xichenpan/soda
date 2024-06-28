@@ -58,7 +58,7 @@ class TrainingArguments(transformers.TrainingArguments):
     seed: int = 42
     data_seed: int = 42
     bf16: bool = True
-    dataloader_num_workers: int = 12
+    dataloader_num_workers: int = os.getenv("OMP_NUM_THREADS", 12)
     dataloader_persistent_workers: bool = True
     dataloader_drop_last: bool = True
     dataloader_prefetch_factor: int = 2
