@@ -34,8 +34,8 @@ class DataArguments:
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
     # deepspeed = "./deepspeed_config.json"
-    output_dir: str = '~/xichenpan/output'
-    data_dir: str = '~/xichenpan/.cache'
+    output_dir: str = '/data/home/xichenpan/output'
+    data_dir: str = '/data/home/xichenpan/.cache'
     overwrite_output_dir: bool = True
     eval_strategy: str = 'no'
     per_device_train_batch_size: int = 64
@@ -50,7 +50,7 @@ class TrainingArguments(transformers.TrainingArguments):
     max_grad_norm: float = 0.5
     lr_scheduler_type: str = 'constant_with_warmup'
     warmup_steps: int = 5000
-    logging_dir: str = '~/xichenpan/log'
+    logging_dir: str = '/data/home/xichenpan/log'
     logging_steps: int = 1
     save_steps: int = 500
     save_total_limit: int = 30
