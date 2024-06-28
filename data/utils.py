@@ -23,6 +23,7 @@ class MapIterator(CheckpointableIterator):
             raise ValueError('source_iterator has to be a CheckpointableIterator')
         self._source_iterator = source_iterator
         self._transform = transform
+        self.dummy = None
 
     def getstate(self) -> Dict:
         return self._source_iterator.getstate()
@@ -32,13 +33,16 @@ class MapIterator(CheckpointableIterator):
 
     def __next__(self):
         item = None
-        while item is None:
+        max_try = 10
+        while item is None and max_try > 0:
             try:
                 item = self._transform(next(self._source_iterator))
+                if self.dummy is None:
+                    self.dummy = item
+                return item
             except:
-                pass
-
-        return item
+                max_try -= 1
+        return self.dummy
 
     def close(self):
         self._source_iterator.close()
