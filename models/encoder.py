@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from transformers import PretrainedConfig, PreTrainedModel
 from transformers import SiglipVisionModel
 
 
@@ -59,21 +60,30 @@ def SDPAforward(self):
     return forward
 
 
-class Encoder(nn.Module):
+class EncoderConfig(PretrainedConfig):
+    model_type = "encoder"
+
+    def __init__(self, encoder_id, gradient_checkpointing, **kwargs):
+        super(EncoderConfig, self).__init__(**kwargs)
+        self.encoder_id = encoder_id
+        self.gradient_checkpointing = gradient_checkpointing
+
+
+class Encoder(PreTrainedModel):
     """
     An encoder network (image -> feature_dim)
     """
 
-    def __init__(self, encoder_id, gradient_checkpointing):
-        super(Encoder, self).__init__()
-        self.model = SiglipVisionModel.from_pretrained(encoder_id)
+    def __init__(self, config: EncoderConfig):
+        super().__init__(config)
+        self.model = SiglipVisionModel.from_pretrained(config.encoder_id)
         # replace the attention layer with our own implementation
         for layer in self.model.vision_model.encoder.layers:
             module = layer.self_attn
             module.forward = SDPAforward(module)
 
         # if gradient_checkpointing:
-        #     self.model.gradient_checkpointing_enable()
+        #     self.models.gradient_checkpointing_enable()
 
     def forward(self, x):
         return self.model(x, output_attentions=False, output_hidden_states=False).pooler_output

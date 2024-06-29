@@ -132,9 +132,9 @@ class GaussianDiffusion(nn.Module):
 
     def p_mean_variance(self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None):
         """
-        Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
+        Apply the models to get p(x_{t-1} | x_t), as well as a prediction of
         the initial x, x_0.
-        :param model: the model, which takes a signal and a batch of timesteps
+        :param model: the models, which takes a signal and a batch of timesteps
                       as input.
         :param x: the [N x C x ...] tensor at time t.
         :param t: a 1-D Tensor of timesteps.
@@ -143,10 +143,10 @@ class GaussianDiffusion(nn.Module):
             x_start prediction before it is used to sample. Applies before
             clip_denoised.
         :param model_kwargs: if not None, a dict of extra keyword arguments to
-            pass to the model. This can be used for conditioning.
+            pass to the models. This can be used for conditioning.
         :return: a dict with the following keys:
-                 - 'mean': the model mean output.
-                 - 'variance': the model variance output.
+                 - 'mean': the models mean output.
+                 - 'variance': the models variance output.
                  - 'log_variance': the log of 'variance'.
                  - 'pred_xstart': the prediction for x_0.
         """

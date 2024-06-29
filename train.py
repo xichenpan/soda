@@ -3,16 +3,17 @@ from dataclasses import dataclass
 
 import torch
 import transformers
+from datasets import load_dataset
 from diffusers.models import AutoencoderKL
 from huggingface_hub import login
 from torchvision import transforms
 from transformers import SiglipImageProcessor
-from transformers import Trainer
 
 from data.dataset import get_dataset
-from model.dit import BottleneckDiTLLaMA
-from model.encoder import Encoder
-from model.soda import SODA
+from models.dit import BottleneckDiTLLaMAConfig, BottleneckDiTLLaMA
+from models.encoder import EncoderConfig, Encoder
+from models.soda import SODAConfig, SODA
+from trainer import SODATrainer
 from utils import ProcessorWrapper, AddGaussianNoise
 
 login(token="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")
@@ -37,8 +38,10 @@ class TrainingArguments(transformers.TrainingArguments):
     output_dir: str = '/data/home/xichenpan/output'
     data_dir: str = '/data/home/xichenpan/.cache'
     overwrite_output_dir: bool = True
-    eval_strategy: str = 'no'
+    eval_strategy: str = 'steps'
+    eval_steps: int = 300
     per_device_train_batch_size: int = 72
+    per_device_eval_batch_size: int = 4
     gradient_accumulation_steps: int = 1
     optim: str = 'adamw_torch_fused'
     max_steps: int = int(1e10)
@@ -80,16 +83,26 @@ if __name__ == "__main__":
 
     assert data_args.target_image_size % 8 == 0, "Image size must be divisible by 8 (for the VAE encoder)."
     latent_size = data_args.target_image_size // 8
-    encoder = Encoder(model_args.encoder_id, training_args._gradient_checkpointing)
+
+    encoder = Encoder(
+        EncoderConfig(
+            encoder_id=model_args.encoder_id,
+            gradient_checkpointing=training_args.gradient_checkpointing
+        )
+    )
     decoder = BottleneckDiTLLaMA(
-        num_embeds_ada_norm=encoder.model.config.hidden_size,
-        gradient_checkpointing=training_args._gradient_checkpointing
+        BottleneckDiTLLaMAConfig(
+            num_embeds_ada_norm=encoder.model.config.hidden_size,
+            gradient_checkpointing=training_args.gradient_checkpointing
+        )
     )
     model = SODA(
+        config=SODAConfig(
+            drop_prob=model_args.drop_prob
+        ),
         encoder=encoder,
         vae=AutoencoderKL.from_pretrained("stabilityai/sdxl-vae"),
-        decoder=decoder,
-        drop_prob=model_args.drop_prob,
+        decoder=decoder
     )
 
     if local_rank == 0:
@@ -143,16 +156,35 @@ if __name__ == "__main__":
         }
 
 
-    dataset = get_dataset(
+    train_dataset = get_dataset(
         process_fn=process_func,
         data_dir=training_args.data_dir,
         seed=training_args.data_seed,
     )
 
-    trainer = Trainer(
+
+    def eval_process_func(batch):
+        images = [img.convert("RGB") for img in batch["image"]]
+        return {
+            "x_source": [source_transform(img) for img in images],
+        }
+
+
+    eval_dataset = load_dataset(
+        "ILSVRC/imagenet-1k", trust_remote_code=True, cache_dir=training_args.data_dir,
+        split="validation", keep_in_memory=True
+    )
+    eval_dataset = eval_dataset.select(range(32))
+    eval_dataset = eval_dataset.map(eval_process_func, batched=True,
+                                    batch_size=training_args.per_device_train_batch_size,
+                                    remove_columns=["image", "label"])
+    eval_dataset = eval_dataset.with_format("torch")
+
+    trainer = SODATrainer(
         model=model,
         args=training_args,
-        train_dataset=dataset,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         data_collator=collate_fn,
     )
 

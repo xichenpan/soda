@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union, List
 
 import torch
 import torch.nn.functional as F
@@ -6,9 +6,11 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.embeddings import PatchEmbed
 from diffusers.models.embeddings import Timesteps, TimestepEmbedding
 from diffusers.models.modeling_utils import ModelMixin
-from diffusers.schedulers import DDPMScheduler
+from diffusers.schedulers import DDPMScheduler, DDIMScheduler
 from diffusers.utils import is_torch_version
+from diffusers.utils.torch_utils import randn_tensor
 from torch import nn
+from transformers import PretrainedConfig, PreTrainedModel
 from transformers.models.llama.modeling_llama import LlamaMLP, LlamaAttention, LlamaConfig, Cache, apply_rotary_pos_emb, \
     repeat_kv
 
@@ -98,26 +100,6 @@ def _chunked_feed_forward(ff: nn.Module, hidden_states: torch.Tensor, chunk_dim:
 
 def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
-
-
-class LatentEmbedding(nn.Module):
-    def __init__(self, n_channels):
-        """
-        * `n_channels` is the number of dimensions in the embedding
-        """
-        super().__init__()
-        self.n_channels = n_channels
-
-    def forward(self, z, drop_mask):
-        """
-        * `z` is the latent code
-        * `drop_mask`: mask out the condition if drop_mask == 1
-        """
-        drop_mask = drop_mask[:, None]
-        drop_mask = drop_mask.repeat(1, self.n_channels)
-        drop_mask = 1 - drop_mask  # need to flip 0 <-> 1
-        z = z * drop_mask
-        return z
 
 
 class BasicTransformerBlock(nn.Module):
@@ -284,7 +266,6 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
 
         self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=1)
         self.timestep_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=num_embeds_ada_norm)
-        self.latent_embedder = LatentEmbedding(n_channels=num_embeds_ada_norm)
 
         self.time_modulation = nn.Sequential(
             nn.SiLU(),
@@ -369,15 +350,12 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
             hidden_states: torch.Tensor,
             timestep: torch.LongTensor,
             z_latents: torch.Tensor,
-            mask: [torch.Tensor],
     ):
         # 1. Input
         hidden_states = self.pos_embed(hidden_states)
 
         timesteps_proj = self.time_proj(timestep)
         timesteps_emb = self.timestep_embedder(timesteps_proj)  # (N, D)
-
-        z_latents = self.latent_embedder(z_latents, mask)
 
         time_shift_msa, time_scale_msa, time_gate_msa, time_shift_mlp, time_scale_mlp, time_gate_mlp = (
             self.time_modulation(
@@ -435,15 +413,29 @@ class DiTTransformer2DModel(ModelMixin, ConfigMixin):
         return output
 
 
-class BottleneckDiTLLaMA(nn.Module):
+class BottleneckDiTLLaMAConfig(PretrainedConfig):
+    model_type = "bottleneck-dit-llama"
+
     def __init__(
             self,
-            num_embeds_ada_norm,
+            num_embeds_ada_norm: int,
             gradient_checkpointing: bool = True,
+            **kwargs,
     ):
-        super().__init__()
-        self.transformer = DiTTransformer2DModel(num_embeds_ada_norm=num_embeds_ada_norm)
+        super().__init__(**kwargs)
+        self.num_embeds_ada_norm = num_embeds_ada_norm
+        self.gradient_checkpointing = gradient_checkpointing
+
+
+class BottleneckDiTLLaMA(PreTrainedModel):
+    def __init__(
+            self,
+            config: BottleneckDiTLLaMAConfig,
+    ):
+        super().__init__(config)
+        self.transformer = DiTTransformer2DModel(num_embeds_ada_norm=config.num_embeds_ada_norm)
         self.noise_scheduler = DDPMScheduler.from_pretrained("facebook/DiT-XL-2-256", subfolder="scheduler")
+        self.scheduler = DDIMScheduler.from_pretrained("facebook/DiT-XL-2-256", subfolder="scheduler")
         self.vlb_loss = GaussianDiffusion(
             alphas=self.noise_scheduler.alphas,
             alphas_cumprod=self.noise_scheduler.alphas_cumprod,
@@ -451,14 +443,13 @@ class BottleneckDiTLLaMA(nn.Module):
         )
         self.transformer.train()
         self.transformer.enable_xformers_memory_efficient_attention()
-        if gradient_checkpointing:
+        if config.gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
 
     def forward(
             self,
             latents,
             z_latents,
-            mask,
     ):
         bsz = latents.shape[0]
         # Sample a random timestep for each image
@@ -467,23 +458,94 @@ class BottleneckDiTLLaMA(nn.Module):
         noise = torch.randn_like(latents, device=latents.device)
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-        model_pred = self.transformer(noisy_latents, timesteps, z_latents, mask)
+        model_pred = self.transformer(noisy_latents, timesteps, z_latents)
         model_output, model_var_values = torch.split(model_pred, self.transformer.config.in_channels, dim=1)
         frozen_out = torch.cat([model_output.detach(), model_var_values], dim=1)
 
         loss = (
-                F.mse_loss(model_output.float(), noise.float(), reduction="mean") +
-                self.vlb_loss._vb_terms_bpd(
-                    model=lambda *args, r=frozen_out: r,
-                    x_start=latents,
-                    x_t=noisy_latents,
-                    t=timesteps,
-                    clip_denoised=False,
-                )["output"].mean()
+            F.mse_loss(model_output.float(), noise.float(), reduction="mean")
+            # +
+            # self.vlb_loss._vb_terms_bpd(
+            #     models=lambda *args, r=frozen_out: r,
+            #     x_start=latents,
+            #     x_t=noisy_latents,
+            #     t=timesteps,
+            #     clip_denoised=False,
+            # )["output"].mean()
         )
 
         return loss
 
+    def sample(
+            self,
+            z_latents,
+            guidance_scale: float = 4.0,
+            generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+            num_inference_steps: int = 50,
+    ):
+        batch_size = z_latents.shape[0]
+        latent_size = self.transformer.config.sample_size
+        latent_channels = self.transformer.config.in_channels
 
-if __name__ == "__main__":
-    model = BottleneckDiTLLaMA()
+        latents = randn_tensor(
+            shape=(batch_size, latent_channels, latent_size, latent_size),
+            generator=generator,
+            device=z_latents.device,
+            dtype=self.transformer.dtype,
+        )
+        latent_model_input = torch.cat([latents] * 2) if guidance_scale > 1 else latents
+
+        z_latents_null = torch.zeros_like(z_latents, device=z_latents.device)
+        z_latents_input = torch.cat([z_latents, z_latents_null], 0) if guidance_scale > 1 else z_latents
+
+        # set step values
+        self.scheduler.set_timesteps(num_inference_steps)
+        for t in self.scheduler.timesteps:
+            if guidance_scale > 1:
+                half = latent_model_input[: len(latent_model_input) // 2]
+                latent_model_input = torch.cat([half, half], dim=0)
+            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+            timesteps = t
+            if not torch.is_tensor(timesteps):
+                # This would be a good case for the `match` statement (Python 3.10+)
+                is_mps = latent_model_input.device.type == "mps"
+                if isinstance(timesteps, float):
+                    dtype = torch.float32 if is_mps else torch.float64
+                else:
+                    dtype = torch.int32 if is_mps else torch.int64
+                timesteps = torch.tensor([timesteps], dtype=dtype, device=latent_model_input.device)
+            elif len(timesteps.shape) == 0:
+                timesteps = timesteps[None].to(latent_model_input.device)
+            # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+            timesteps = timesteps.expand(latent_model_input.shape[0])
+            # predict noise model_output
+            noise_pred = self.transformer(
+                latent_model_input, timestep=timesteps, z_latents=z_latents_input
+            )
+
+            # perform guidance
+            if guidance_scale > 1:
+                eps, rest = noise_pred[:, :latent_channels], noise_pred[:, latent_channels:]
+                cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
+
+                half_eps = uncond_eps + guidance_scale * (cond_eps - uncond_eps)
+                eps = torch.cat([half_eps, half_eps], dim=0)
+
+                noise_pred = torch.cat([eps, rest], dim=1)
+
+            # learned sigma
+            if self.transformer.config.out_channels // 2 == latent_channels:
+                model_output, _ = torch.split(noise_pred, latent_channels, dim=1)
+            else:
+                model_output = noise_pred
+
+            # compute previous image: x_t -> x_t-1
+            latent_model_input = self.scheduler.step(model_output, t, latent_model_input).prev_sample
+
+        if guidance_scale > 1:
+            latents, _ = latent_model_input.chunk(2, dim=0)
+        else:
+            latents = latent_model_input
+
+        return latents
