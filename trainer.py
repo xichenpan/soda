@@ -47,6 +47,10 @@ class SODATrainer(Trainer):
 
         return self.accelerator.prepare(eval_dataloader)
 
+    def log_images(self, logs: Dict[str, float]) -> None:
+        logs["step"] = self.state.global_step
+        self.control = self.callback_handler.on_log(self.args, self.state, self.control, logs)
+
     def prediction_step(
             self,
             model: nn.Module,
@@ -59,6 +63,6 @@ class SODATrainer(Trainer):
         with torch.no_grad():
             samples = model.sample_images(inputs["x_source"])
 
-        self.log({"images": [wandb.Image(image) for image in samples]})
+        self.log_images({"images": [wandb.Image(image) for image in samples]})
 
         return (None, None, None)

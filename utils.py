@@ -1,7 +1,7 @@
 import torch
 
 
-class AddGaussianNoise():
+class AddGaussianNoise:
     def __init__(self, sigma=0.10):
         self.sigma = sigma
 

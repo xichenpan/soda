@@ -1,7 +1,6 @@
 from typing import Optional, Tuple
 
 import torch
-import torch.nn as nn
 from torch.nn import functional as F
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers import SiglipVisionModel

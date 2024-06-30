@@ -464,14 +464,14 @@ class BottleneckDiTLLaMA(PreTrainedModel):
 
         loss = (
             F.mse_loss(model_output.float(), noise.float(), reduction="mean")
-            # +
-            # self.vlb_loss._vb_terms_bpd(
-            #     models=lambda *args, r=frozen_out: r,
-            #     x_start=latents,
-            #     x_t=noisy_latents,
-            #     t=timesteps,
-            #     clip_denoised=False,
-            # )["output"].mean()
+            +
+            self.vlb_loss._vb_terms_bpd(
+                model=lambda *args, r=frozen_out: r,
+                x_start=latents,
+                x_t=noisy_latents,
+                t=timesteps,
+                clip_denoised=False,
+            )["output"].mean()
         )
 
         return loss
